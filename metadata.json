@@ -2,5 +2,7 @@
   "name": "MFTracker Performance Optimizer",
   "description": "Lightweight, high-performance Indian mutual fund portfolio tracker and optimizer for Google Cloud Run featuring CAS statement parsing, Newton-Raphson XIRR, live AMFI sync, stock overlap analytics, and virtualization.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

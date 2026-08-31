@@ -624,7 +624,7 @@ export function LazyLoadingStudio() {
           {/* Key Takeaways for MFTracker */}
           <div className="bg-neutral-50 rounded-xl p-4 border border-neutral-200">
             <h4 className="text-xs font-bold text-neutral-900 uppercase tracking-wider mb-2">
-              Implementation Blueprint for akhilvp07/mftracker
+              Implementation Blueprint
             </h4>
             <ul className="text-xs text-neutral-700 space-y-1.5">
               <li className="flex items-start">
