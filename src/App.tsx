@@ -136,12 +136,19 @@ export default function App() {
   }, []);
 
   // Import transactions from CAS statement
-  const handleImportTransactions = useCallback((imported: TransactionRecord[], replaceExisting: boolean) => {
+  const handleImportTransactions = useCallback((imported: TransactionRecord[], replaceExisting: boolean, newSchemes?: Record<string, MutualFundScheme>) => {
     setTransactions(prev => {
       const updated = replaceExisting ? imported : [...imported, ...prev];
       saveStoredTransactions(updated);
       return updated;
     });
+    if (newSchemes && Object.keys(newSchemes).length > 0) {
+      setSchemes(prev => {
+        const updated = { ...prev, ...newSchemes };
+        Object.values(newSchemes).forEach(s => saveCustomScheme(s));
+        return updated;
+      });
+    }
     setActiveTab('overview');
   }, []);
 
