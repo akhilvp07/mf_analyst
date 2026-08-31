@@ -3,6 +3,8 @@ export interface MutualFundScheme {
   schemeName: string;
   fundHouse: string;
   category: 'Equity - Flexi Cap' | 'Equity - Large Cap' | 'Equity - Mid Cap' | 'Equity - Small Cap' | 'Debt - Liquid' | 'Hybrid - Aggressive' | 'Debt - Short Duration' | 'Equity - ELSS' | 'Index Fund';
+  planType?: 'Direct' | 'Regular';
+  optionType?: 'Growth' | 'IDCW';
   currentNav: number;
   navDate: string;
   navChange1D: number;
@@ -29,6 +31,8 @@ export interface TransactionRecord {
   folioNumber: string;
   schemeCode: string;
   schemeName: string;
+  planType?: 'Direct' | 'Regular';
+  optionType?: 'Growth' | 'IDCW';
   type: TransactionType;
   date: string; // YYYY-MM-DD
   units: number;
@@ -43,6 +47,8 @@ export interface PortfolioHolding {
   schemeName: string;
   fundHouse: string;
   category: string;
+  planType?: 'Direct' | 'Regular';
+  optionType?: 'Growth' | 'IDCW';
   folioNumber: string;
   isin?: string;
   units: number;
@@ -130,75 +136,3 @@ export interface TaxComputation {
   taxHarvestingOpportunity: number;
 }
 
-export interface QueryPlanStep {
-  nodeType: string;
-  relationName?: string;
-  indexName?: string;
-  indexCond?: string;
-  filter?: string;
-  startupCost: number;
-  totalCost: number;
-  planRows: number;
-  planWidth: number;
-  actualStartupTime: number;
-  actualTotalTime: number;
-  actualRows: number;
-  actualLoops: number;
-  sharedHitBlocks: number;
-  sharedReadBlocks: number;
-  heapFetches?: number;
-  bottlenecks?: string[];
-  children?: QueryPlanStep[];
-}
-
-export interface QueryScenario {
-  id: string;
-  title: string;
-  description: string;
-  businessCase: string;
-  querySql: string;
-  datasetSize: string;
-  unindexed: {
-    plan: QueryPlanStep;
-    executionTimeMs: number;
-    planningTimeMs: number;
-    sharedHitBuffers: number;
-    sharedReadBuffers: number;
-    heapFetches: number;
-    diskIoKb: number;
-    bottlenecks: string[];
-  };
-  indexed: {
-    indexDdl: string;
-    indexType: string;
-    plan: QueryPlanStep;
-    executionTimeMs: number;
-    planningTimeMs: number;
-    sharedHitBuffers: number;
-    sharedReadBuffers: number;
-    heapFetches: number;
-    diskIoKb: number;
-    speedupFactor: number;
-    optimizationsUsed: string[];
-  };
-}
-
-export interface CodeSnippet {
-  id: string;
-  title: string;
-  category: 'Frontend Virtualization' | 'API & Cursor Pagination' | 'Database Indexing' | 'Advanced Timescale & Partitioning' | 'Google Cloud Run Hosting';
-  filename: string;
-  language: string;
-  code: string;
-  explanation: string;
-  keyBenefits: string[];
-}
-
-export interface BenchmarkMetrics {
-  renderTimeMs: number;
-  domNodesCount: number;
-  fps: number;
-  memoryEstimateMb: number;
-  datasetSize: number;
-  mode: 'naive' | 'virtualized' | 'infinite';
-}

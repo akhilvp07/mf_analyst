@@ -2,15 +2,11 @@ import React from 'react';
 import { 
   TrendingUp, 
   RefreshCw, 
-  Download, 
   UploadCloud, 
-  Sliders, 
   Layers, 
   PieChart, 
   Receipt, 
   Calculator, 
-  Server, 
-  ShieldCheck,
   Plus
 } from 'lucide-react';
 import { formatINR } from '../utils/financialCalculations';
@@ -23,8 +19,7 @@ export type ActiveTab =
   | 'insights' 
   | 'tax' 
   | 'simulator' 
-  | 'import' 
-  | 'google-cloud';
+  | 'import';
 
 interface HeaderProps {
   activeTab: ActiveTab;
@@ -42,11 +37,9 @@ export const Header: React.FC<HeaderProps> = ({
   summary,
   isSyncingNavs,
   onSyncNavs,
-  onOpenAddModal,
-  onOpenImport
+  onOpenAddModal
 }) => {
   const isPositiveDay = summary.dayGain >= 0;
-  const isPositiveTotal = summary.totalGain >= 0;
 
   const navItems = [
     { id: 'overview' as ActiveTab, label: 'Dashboard', icon: TrendingUp },
@@ -55,15 +48,14 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'insights' as ActiveTab, label: 'Asset Insights & Overlap', icon: PieChart },
     { id: 'tax' as ActiveTab, label: 'Capital Gains & Tax', icon: Receipt },
     { id: 'simulator' as ActiveTab, label: 'SIP Compounding', icon: Calculator },
-    { id: 'import' as ActiveTab, label: 'CAS Import & Backup', icon: UploadCloud },
-    { id: 'google-cloud' as ActiveTab, label: 'Google Cloud & Perf', icon: Server }
+    { id: 'import' as ActiveTab, label: 'CAS Import & Backup', icon: UploadCloud }
   ];
 
   return (
     <header className="sticky top-0 z-40 bg-neutral-900/90 backdrop-blur-md border-b border-neutral-800 text-neutral-100 shadow-md">
       {/* Top Banner / Ticker */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        {/* Brand & Market Status */}
+        {/* Brand & Status */}
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 text-neutral-950 font-bold text-lg">
             MF
@@ -73,7 +65,7 @@ export const Header: React.FC<HeaderProps> = ({
               <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
                 MFTracker
                 <span className="text-[11px] font-medium tracking-normal px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  Google Cloud Edition
+                  Portfolio Manager
                 </span>
               </h1>
             </div>

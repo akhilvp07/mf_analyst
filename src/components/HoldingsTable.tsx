@@ -13,7 +13,8 @@ import {
   SlidersHorizontal,
   ChevronRight,
   Sparkles,
-  Info
+  Info,
+  ArrowLeftRight
 } from 'lucide-react';
 import { PortfolioHolding } from '../types';
 import { formatINR } from '../utils/financialCalculations';
@@ -23,7 +24,8 @@ interface HoldingsTableProps {
   onOpenAddModal: (schemeCode?: string, schemeName?: string, folio?: string) => void;
   onViewTransactions: (schemeCode: string) => void;
   onDeleteHolding: (schemeCode: string, folioNumber: string) => void;
-  onSyncSingleNav: (schemeCode: string) => void;
+  onSyncSingleNav: (schemeCode: string, schemeName?: string, isin?: string) => Promise<any> | void;
+  onSwitchPlan?: (schemeCode: string, targetPlan: 'Direct' | 'Regular') => Promise<any> | void;
 }
 
 type SortField = 'currentValue' | 'totalGain' | 'totalGainPercentage' | 'dayGain' | 'xirr' | 'schemeName' | 'allocationPercentage';
@@ -33,13 +35,15 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
   onOpenAddModal,
   onViewTransactions,
   onDeleteHolding,
-  onSyncSingleNav
+  onSyncSingleNav,
+  onSwitchPlan
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [sortField, setSortField] = useState<SortField>('currentValue');
   const [sortAsc, setSortAsc] = useState(false);
   const [syncingCode, setSyncingCode] = useState<string | null>(null);
+  const [switchingCode, setSwitchingCode] = useState<string | null>(null);
 
   // Extract unique categories
   const categories = useMemo(() => {
@@ -55,7 +59,9 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
         const matchesSearch = 
           h.schemeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
           h.fundHouse.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          h.folioNumber.toLowerCase().includes(searchQuery.toLowerCase());
+          h.folioNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (h.planType && h.planType.toLowerCase().includes(searchQuery.toLowerCase())) ||
+          (h.schemeCode && h.schemeCode.toLowerCase().includes(searchQuery.toLowerCase()));
         
         const matchesCat = categoryFilter === 'ALL' || h.category === categoryFilter;
         return matchesSearch && matchesCat;
@@ -80,10 +86,24 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
     }
   };
 
-  const handleSyncNav = async (schemeCode: string) => {
+  const handleSyncNav = async (schemeCode: string, schemeName?: string, isin?: string) => {
     setSyncingCode(schemeCode);
-    await onSyncSingleNav(schemeCode);
-    setTimeout(() => setSyncingCode(null), 800);
+    try {
+      await onSyncSingleNav(schemeCode, schemeName, isin);
+    } finally {
+      setTimeout(() => setSyncingCode(null), 600);
+    }
+  };
+
+  const handleTogglePlan = async (schemeCode: string, currentPlan?: 'Direct' | 'Regular') => {
+    if (!onSwitchPlan) return;
+    const targetPlan = currentPlan === 'Regular' ? 'Direct' : 'Regular';
+    setSwitchingCode(schemeCode);
+    try {
+      await onSwitchPlan(schemeCode, targetPlan);
+    } finally {
+      setTimeout(() => setSwitchingCode(null), 600);
+    }
   };
 
   return (
@@ -96,7 +116,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
           <input
             id="holdings-search-input"
             type="text"
-            placeholder="Search fund name, AMC, or folio..."
+            placeholder="Search fund name, AMC, folio, or Direct/Regular..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-4 py-2 text-xs bg-neutral-800 border border-neutral-700 rounded-xl text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-emerald-500 transition"
@@ -143,7 +163,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                   onClick={() => handleSort('schemeName')}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span>Scheme & Folio</span>
+                    <span>Scheme, Plan & Folio</span>
                     <ArrowUpDown className="w-3 h-3" />
                   </div>
                 </th>
@@ -203,6 +223,9 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                   const isProfit = holding.totalGain >= 0;
                   const isDayUp = holding.navChange1D >= 0;
                   const isSyncing = syncingCode === holding.schemeCode;
+                  const isSwitching = switchingCode === holding.schemeCode;
+                  const plan = holding.planType || 'Direct';
+                  const option = holding.optionType || 'Growth';
 
                   return (
                     <tr 
@@ -211,11 +234,36 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                     >
                       {/* Scheme & Folio */}
                       <td className="py-3.5 px-4">
-                        <div className="font-semibold text-neutral-100 group-hover:text-emerald-400 transition text-sm">
-                          {holding.schemeName}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-neutral-100 group-hover:text-emerald-400 transition text-sm">
+                            {holding.schemeName}
+                          </span>
+                          
+                          {/* Plan Badge / Switcher */}
+                          <button
+                            type="button"
+                            onClick={() => handleTogglePlan(holding.schemeCode, plan)}
+                            title={`Click to switch between Direct Plan and Regular Plan (currently ${plan})`}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-1 ${
+                              plan === 'Regular'
+                                ? 'bg-amber-950/70 text-amber-300 border border-amber-800/80 hover:bg-amber-900/80'
+                                : 'bg-emerald-950/70 text-emerald-300 border border-emerald-800/80 hover:bg-emerald-900/80'
+                            }`}
+                          >
+                            <span>{plan}</span>
+                            <ArrowLeftRight className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100" />
+                          </button>
+
+                          {/* Option Badge */}
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-800 border border-neutral-700 text-neutral-300">
+                            {option}
+                          </span>
                         </div>
-                        <div className="flex items-center gap-3 text-[11px] text-neutral-400 mt-0.5">
+
+                        <div className="flex items-center gap-3 text-[11px] text-neutral-400 mt-1">
                           <span>AMC: <strong className="text-neutral-300">{holding.fundHouse}</strong></span>
+                          <span>•</span>
+                          <span>Code: <strong className="font-mono text-neutral-300">#{holding.schemeCode}</strong></span>
                           <span>•</span>
                           <span>Folio: <strong className="font-mono text-neutral-300">{holding.folioNumber}</strong></span>
                         </div>
@@ -241,17 +289,25 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                       {/* Current Live NAV */}
                       <td className="py-3.5 px-3 text-right whitespace-nowrap">
                         <div className="font-mono font-bold text-neutral-100 flex items-center justify-end gap-1.5">
-                          <span>₹{holding.currentNav.toFixed(2)}</span>
+                          <span>₹{holding.currentNav >= 1000 ? holding.currentNav.toFixed(2) : Number.isInteger(holding.currentNav) ? holding.currentNav.toFixed(2) : holding.currentNav.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')}</span>
                           <button
-                            onClick={() => handleSyncNav(holding.schemeCode)}
+                            id={`sync-holding-${holding.schemeCode}`}
+                            onClick={() => handleSyncNav(holding.schemeCode, holding.schemeName, holding.isin)}
                             title="Sync live NAV from AMFI"
-                            className="text-neutral-500 hover:text-emerald-400 p-0.5 rounded cursor-pointer"
+                            className="text-neutral-500 hover:text-emerald-400 p-0.5 rounded cursor-pointer transition"
                           >
                             <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-emerald-400' : ''}`} />
                           </button>
                         </div>
-                        <div className={`text-[11px] font-medium ${isDayUp ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {isDayUp ? '+' : ''}{holding.navChange1D.toFixed(2)}% (1D)
+                        <div className="flex items-center justify-end gap-1.5 text-[11px] font-medium mt-0.5">
+                          <span className={isDayUp ? 'text-emerald-400' : 'text-rose-400'}>
+                            {isDayUp ? '+' : ''}{holding.navChange1D.toFixed(2)}% (1D)
+                          </span>
+                          {holding.navDate && (
+                            <span className="text-neutral-500 text-[10px]">
+                              • {new Date(holding.navDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -299,6 +355,16 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                       {/* Action Menu */}
                       <td className="py-3.5 px-4 text-center whitespace-nowrap">
                         <div className="flex items-center justify-center gap-1.5">
+                          {onSwitchPlan && (
+                            <button
+                              onClick={() => handleTogglePlan(holding.schemeCode, plan)}
+                              title={`Switch to ${plan === 'Direct' ? 'Regular' : 'Direct'} Plan`}
+                              disabled={isSwitching}
+                              className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-amber-300 border border-neutral-700 transition cursor-pointer disabled:opacity-50"
+                            >
+                              <ArrowLeftRight className={`w-3.5 h-3.5 ${isSwitching ? 'animate-spin' : ''}`} />
+                            </button>
+                          )}
                           <button
                             onClick={() => onOpenAddModal(holding.schemeCode, holding.schemeName, holding.folioNumber)}
                             title="Add SIP or Lumpsum transaction"

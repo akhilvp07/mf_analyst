@@ -1,5 +1,5 @@
 import { TransactionRecord, MutualFundScheme } from '../types';
-import { SCHEMES } from '../data/mockData';
+import { cleanFundDisplayName, isValidFolioNumber } from '../utils/financialCalculations';
 
 const STORAGE_KEYS = {
   TRANSACTIONS: 'mftracker_transactions_v2',
@@ -23,133 +23,26 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 
 /**
- * Generate a realistic demo portfolio spanning ~3 years of regular monthly SIPs across 5 direct mutual funds
- */
-export function generateDemoTransactions(): TransactionRecord[] {
-  const txs: TransactionRecord[] = [];
-  let idCounter = 1;
-
-  const demoHoldings = [
-    {
-      schemeCode: '122639',
-      schemeName: 'Parag Parikh Flexi Cap Fund - Direct Plan - Growth',
-      folioNumber: 'PPF-902184-B',
-      sipAmount: 15000,
-      startNav: 48.2,
-      growthRatePerMonth: 0.013,
-      months: 36
-    },
-    {
-      schemeCode: '119063',
-      schemeName: 'HDFC Top 100 Fund - Direct Plan - Growth',
-      folioNumber: 'HDF-109283-A',
-      sipAmount: 10000,
-      startNav: 720.5,
-      growthRatePerMonth: 0.011,
-      months: 36
-    },
-    {
-      schemeCode: '120503',
-      schemeName: 'Quant Small Cap Fund - Direct Plan - Growth',
-      folioNumber: 'QNT-443210-C',
-      sipAmount: 12000,
-      startNav: 110.0,
-      growthRatePerMonth: 0.019,
-      months: 30
-    },
-    {
-      schemeCode: '118834',
-      schemeName: 'Mirae Asset Large Cap Fund - Direct Plan - Growth',
-      folioNumber: 'MIR-776512-K',
-      sipAmount: 8000,
-      startNav: 78.4,
-      growthRatePerMonth: 0.010,
-      months: 36
-    },
-    {
-      schemeCode: '120152',
-      schemeName: 'Kotak Emerging Equity Fund - Direct Plan - Growth',
-      folioNumber: 'KTK-319804-M',
-      sipAmount: 10000,
-      startNav: 68.9,
-      growthRatePerMonth: 0.015,
-      months: 24
-    }
-  ];
-
-  const today = new Date();
-
-  demoHoldings.forEach(holding => {
-    let currentSimNav = holding.startNav;
-    for (let m = holding.months; m >= 1; m--) {
-      const txDate = new Date(today);
-      txDate.setMonth(today.getMonth() - m);
-      txDate.setDate(10); // 10th of every month SIP
-
-      // Add a little realistic market volatility
-      const volatility = 1 + (Math.sin(m * 0.7) * 0.02) + (Math.random() * 0.01 - 0.005);
-      currentSimNav = currentSimNav * (1 + holding.growthRatePerMonth) * volatility;
-      const units = holding.sipAmount / currentSimNav;
-
-      txs.push({
-        id: `tx-${idCounter++}`,
-        folioNumber: holding.folioNumber,
-        schemeCode: holding.schemeCode,
-        schemeName: holding.schemeName,
-        type: 'SIP',
-        date: txDate.toISOString().split('T')[0],
-        units: Math.round(units * 1000) / 1000,
-        nav: Math.round(currentSimNav * 100) / 100,
-        amount: holding.sipAmount,
-        status: 'COMPLETED'
-      });
-    }
-
-    // Add 1 lumpsum investment 18 months ago
-    const lumpsumDate = new Date(today);
-    lumpsumDate.setMonth(today.getMonth() - 18);
-    lumpsumDate.setDate(15);
-    const lumpsumNav = holding.startNav * 1.25;
-    const lumpsumAmount = 50000;
-
-    txs.push({
-      id: `tx-${idCounter++}`,
-      folioNumber: holding.folioNumber,
-      schemeCode: holding.schemeCode,
-      schemeName: holding.schemeName,
-      type: 'LUMPSUM',
-      date: lumpsumDate.toISOString().split('T')[0],
-      units: Math.round((lumpsumAmount / lumpsumNav) * 1000) / 1000,
-      nav: Math.round(lumpsumNav * 100) / 100,
-      amount: lumpsumAmount,
-      status: 'COMPLETED',
-      notes: 'Bonus allocation'
-    });
-  });
-
-  return txs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-}
-
-/**
- * Load transactions from local storage, or default to demo data on first visit
+ * Load transactions from local storage (returns empty array if none)
  */
 export function loadStoredTransactions(): TransactionRecord[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+      if (Array.isArray(parsed)) {
+        return parsed.map(tx => ({
+          ...tx,
+          schemeName: cleanFundDisplayName(tx.schemeName),
+          folioNumber: isValidFolioNumber(tx.folioNumber) ? tx.folioNumber.trim() : (tx.folioNumber || 'FOLIO-1')
+        }));
       }
     }
   } catch (err) {
     console.error('Failed to load stored transactions:', err);
   }
 
-  // First time initialization with demo portfolio
-  const initial = generateDemoTransactions();
-  saveStoredTransactions(initial);
-  return initial;
+  return [];
 }
 
 /**
@@ -168,9 +61,6 @@ export function saveStoredTransactions(transactions: TransactionRecord[]): void 
  */
 export function loadSchemeCatalog(): Record<string, MutualFundScheme> {
   const map: Record<string, MutualFundScheme> = {};
-  SCHEMES.forEach(s => {
-    map[s.schemeCode] = s;
-  });
 
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.CUSTOM_SCHEMES);
@@ -196,6 +86,17 @@ export function saveCustomScheme(scheme: MutualFundScheme): void {
     localStorage.setItem(STORAGE_KEYS.CUSTOM_SCHEMES, JSON.stringify(existing));
   } catch (err) {
     console.error('Failed to save custom scheme:', err);
+  }
+}
+
+/**
+ * Save all schemes to local storage
+ */
+export function saveAllSchemes(schemes: Record<string, MutualFundScheme>): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.CUSTOM_SCHEMES, JSON.stringify(schemes));
+  } catch (err) {
+    console.error('Failed to save all schemes:', err);
   }
 }
 
@@ -232,7 +133,7 @@ export function exportPortfolioToJson(transactions: TransactionRecord[], schemes
   const payload = {
     version: '2.0.0',
     exportedAt: new Date().toISOString(),
-    source: 'MFTracker - Google Cloud Run Optimized Edition',
+    source: 'MFTracker - Mutual Fund Portfolio Analytics',
     transactionsCount: transactions.length,
     transactions,
     customSchemes: schemes
@@ -280,7 +181,7 @@ export function parseCasStatement(fileContent: string): { transactions: Transact
             id: tx.id || `cas-${idCounter++}`,
             folioNumber: tx.folioNumber || 'FOLIO-1',
             schemeCode: String(tx.schemeCode),
-            schemeName: tx.schemeName || 'Direct Mutual Fund',
+            schemeName: cleanFundDisplayName(tx.schemeName || 'Direct Mutual Fund'),
             type: tx.type || 'SIP',
             date: tx.date || new Date().toISOString().split('T')[0],
             units: Math.abs(parseFloat(tx.units) || 0),
@@ -310,7 +211,7 @@ export function parseCasStatement(fileContent: string): { transactions: Transact
         const dateStr = cols[0];
         const folio = cols[1] || 'FOLIO-1';
         const schemeCode = cols[2] || '122639';
-        const schemeName = cols[3] || 'Mutual Fund Scheme';
+        const rawSchemeName = cols[3] || 'Mutual Fund Scheme';
         const typeRaw = cols[4]?.toUpperCase() || 'SIP';
         const units = Math.abs(parseFloat(cols[5]) || 0);
         const nav = parseFloat(cols[6]) || 100;
@@ -326,7 +227,7 @@ export function parseCasStatement(fileContent: string): { transactions: Transact
           id: `csv-${idCounter++}`,
           folioNumber: folio,
           schemeCode,
-          schemeName,
+          schemeName: cleanFundDisplayName(rawSchemeName),
           type: txType,
           date: dateStr,
           units,

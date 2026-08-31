@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   UploadCloud, 
   FileText, 
@@ -6,44 +6,36 @@ import {
   AlertTriangle, 
   ShieldCheck, 
   Download, 
-  Sparkles, 
   RefreshCw, 
-  ArrowRight,
-  Database,
-  Lock,
-  Eye,
-  EyeOff,
-  KeyRound,
-  FileCheck,
-  User,
-  CreditCard,
-  Calendar,
-  Layers,
-  Search,
-  Check,
-  Copy
+  Database, 
+  Eye, 
+  EyeOff, 
+  KeyRound, 
+  FileCheck, 
+  User, 
+  CreditCard, 
+  Calendar, 
+  Layers, 
+  Search, 
+  Check
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { TransactionRecord, MutualFundScheme } from '../types';
-import { 
-  parseCasStatement, 
-  exportPortfolioToJson, 
-  generateDemoTransactions 
-} from '../services/portfolioStorage';
+import { parseCasStatement, exportPortfolioToJson } from '../services/portfolioStorage';
 import { parsePdfCasStatement, PdfParseResult } from '../services/pdfCasParser';
+import { resolveSchemeLiveDetails } from '../services/mfApi';
+import { cleanFundDisplayName } from '../utils/financialCalculations';
 
 interface CasImporterProps {
   transactions: TransactionRecord[];
   schemes: Record<string, MutualFundScheme>;
   onImportTransactions: (newTransactions: TransactionRecord[], replaceExisting: boolean, newSchemes?: Record<string, MutualFundScheme>) => void;
-  onResetDemoData: () => void;
 }
 
 export const CasImporter: React.FC<CasImporterProps> = ({
   transactions,
   schemes,
-  onImportTransactions,
-  onResetDemoData
+  onImportTransactions
 }) => {
   const [importStatus, setImportStatus] = useState<'idle' | 'parsing' | 'success' | 'error'>('idle');
   const [statusMessage, setStatusMessage] = useState<string>('');
@@ -52,11 +44,9 @@ export const CasImporter: React.FC<CasImporterProps> = ({
   const [replaceMode, setReplaceMode] = useState<boolean>(true);
   
   // PDF Password Management
-  const [pdfPassword, setPdfPassword] = useState<string>('Testing123#');
+  const [pdfPassword, setPdfPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
-  const [pendingPdfBuffer, setPendingPdfBuffer] = useState<ArrayBuffer | null>(null);
-  const [pendingFileName, setPendingFileName] = useState<string>('');
-  const [isPasswordRequired, setIsPasswordRequired] = useState<boolean>(false);
+  const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null);
 
   // Metadata extracted from CAMS statement
   const [statementMeta, setStatementMeta] = useState<{
@@ -76,35 +66,32 @@ export const CasImporter: React.FC<CasImporterProps> = ({
   const processPdfBuffer = async (buffer: ArrayBuffer, fileName: string, passwordToUse: string) => {
     setImportStatus('parsing');
     setStatusMessage(`Decrypting and parsing CAMS PDF "${fileName}"...`);
-    setIsPasswordRequired(false);
 
     try {
       const result: PdfParseResult = await parsePdfCasStatement(buffer, passwordToUse);
 
       if (result.requiresPassword) {
-        setIsPasswordRequired(true);
-        setPendingPdfBuffer(buffer);
-        setPendingFileName(fileName);
         setImportStatus('error');
         setStatusMessage('Password required or incorrect. Please enter the valid PDF password to decrypt the statement.');
         return;
       }
 
       if (result.transactions.length > 0) {
-        setParsedPreview(result.transactions);
+        let activeTransactions = [...result.transactions];
         
         // Map detected schemes
         const schemeMap: Record<string, MutualFundScheme> = {};
         result.detectedSchemes.forEach(s => {
           if (s.schemeCode && s.schemeName) {
+            const cleanName = cleanFundDisplayName(s.schemeName);
             schemeMap[s.schemeCode] = {
               schemeCode: s.schemeCode,
-              schemeName: s.schemeName,
+              schemeName: cleanName,
               fundHouse: s.fundHouse || 'Mutual Fund',
               category: s.category || 'Equity - Flexi Cap',
-              currentNav: 100,
-              navDate: new Date().toISOString().split('T')[0],
-              navChange1D: 0,
+              currentNav: s.currentNav && s.currentNav > 0 ? s.currentNav : 85.0,
+              navDate: s.navDate || new Date().toISOString().split('T')[0],
+              navChange1D: s.navChange1D || 0,
               cagr3Y: 15,
               cagr5Y: 18,
               aumCr: 10000,
@@ -113,6 +100,8 @@ export const CasImporter: React.FC<CasImporterProps> = ({
             };
           }
         });
+
+        setParsedPreview(activeTransactions);
         setDetectedSchemes(schemeMap);
 
         setStatementMeta({
@@ -123,20 +112,70 @@ export const CasImporter: React.FC<CasImporterProps> = ({
         });
 
         setImportStatus('success');
-        setStatusMessage(`Successfully extracted ${result.transactions.length} mutual fund transactions across ${result.folioCount} folio(s) from "${fileName}"!`);
+        setStatusMessage(`Successfully extracted ${result.transactions.length} mutual fund transactions across ${result.folioCount} folio(s) from "${fileName}"! Resolving live NAVs...`);
         
+        // Asynchronously resolve live AMFI scheme details and NAVs
+        Promise.all(
+          result.detectedSchemes.map(async (s) => {
+            if (!s.schemeName) return null;
+            try {
+              const live = await resolveSchemeLiveDetails(s.schemeName, s.isin, s.currentNav, true);
+              return { oldCode: s.schemeCode, live };
+            } catch {
+              return null;
+            }
+          })
+        ).then((resolved) => {
+          const updatedSchemeMap = { ...schemeMap };
+          let updatedTxs = [...activeTransactions];
+          let didUpdate = false;
+
+          resolved.forEach((item) => {
+            if (item && item.live) {
+              didUpdate = true;
+              const { oldCode, live } = item;
+              if (oldCode && oldCode !== live.schemeCode) {
+                delete updatedSchemeMap[oldCode];
+                updatedTxs = updatedTxs.map(tx => tx.schemeCode === oldCode ? { ...tx, schemeCode: live.schemeCode, schemeName: live.schemeName } : tx);
+              }
+              updatedSchemeMap[live.schemeCode] = {
+                schemeCode: live.schemeCode,
+                schemeName: live.schemeName,
+                fundHouse: live.fundHouse,
+                category: live.category,
+                currentNav: live.currentNav,
+                navDate: live.navDate,
+                navChange1D: live.navChange1D,
+                cagr3Y: 15,
+                cagr5Y: 18,
+                aumCr: 10000,
+                expenseRatio: 0.75,
+                isin: live.isin || ''
+              };
+            }
+          });
+
+          if (didUpdate) {
+            setDetectedSchemes(updatedSchemeMap);
+            setParsedPreview(updatedTxs);
+            setStatusMessage(`Successfully extracted ${activeTransactions.length} transactions across ${result.folioCount} folio(s) with live NAVs resolved!`);
+          }
+        }).catch(() => {
+          // Resolution fallback already set
+        });
+
         try {
           confetti({
-            particleCount: 90,
-            spread: 70,
+            particleCount: 80,
+            spread: 60,
             origin: { y: 0.6 }
           });
         } catch {
-          // Ignore confetti error
+          // Confetti optional
         }
       } else {
         setImportStatus('error');
-        setStatusMessage(result.error || 'Could not find any valid mutual fund transaction rows in the PDF. Please check if this is a standard CAMS or KFintech CAS statement.');
+        setStatusMessage(result.error || 'Could not find any valid mutual fund transaction rows in the PDF. Please ensure this is a standard CAMS or KFintech CAS statement.');
       }
     } catch (err: any) {
       setImportStatus('error');
@@ -149,9 +188,8 @@ export const CasImporter: React.FC<CasImporterProps> = ({
     const isPdf = fileName.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
 
     if (isPdf) {
+      setPendingPdfFile(file);
       const buffer = await file.arrayBuffer();
-      setPendingPdfBuffer(buffer);
-      setPendingFileName(fileName);
       await processPdfBuffer(buffer, fileName, pdfPassword);
     } else {
       // JSON / CSV / TXT
@@ -169,8 +207,8 @@ export const CasImporter: React.FC<CasImporterProps> = ({
             
             try {
               confetti({
-                particleCount: 70,
-                spread: 60,
+                particleCount: 60,
+                spread: 50,
                 origin: { y: 0.7 }
               });
             } catch {}
@@ -193,9 +231,10 @@ export const CasImporter: React.FC<CasImporterProps> = ({
     handleFileProcess(file);
   };
 
-  const handleRetryWithPassword = () => {
-    if (pendingPdfBuffer && pendingFileName) {
-      processPdfBuffer(pendingPdfBuffer, pendingFileName, pdfPassword);
+  const handleRetryWithPassword = async () => {
+    if (pendingPdfFile) {
+      const buffer = await pendingPdfFile.arrayBuffer();
+      await processPdfBuffer(buffer, pendingPdfFile.name, pdfPassword);
     }
   };
 
@@ -237,15 +276,6 @@ export const CasImporter: React.FC<CasImporterProps> = ({
     document.body.removeChild(link);
   };
 
-  const handleTriggerDemo = () => {
-    onResetDemoData();
-    setImportStatus('success');
-    setStatusMessage('Loaded realistic 3-year multi-fund SIP demonstration portfolio!');
-    try {
-      confetti({ particleCount: 50, spread: 50 });
-    } catch {}
-  };
-
   // Filtered preview transactions
   const filteredPreview = parsedPreview.filter(t => {
     if (!previewSearch) return true;
@@ -275,14 +305,14 @@ export const CasImporter: React.FC<CasImporterProps> = ({
                 </span>
               </h2>
               <p className="text-xs text-neutral-400 mt-1">
-                Your password-protected CAMS / KFintech PDF statements are decrypted and parsed <strong>strictly on your device</strong> using browser WebAssembly. No passwords, folios, or financial records leave your computer.
+                Your password-protected CAMS / KFintech PDF statements are decrypted and parsed <strong>strictly on your device</strong>. No passwords, folios, or financial records leave your browser.
               </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Main Action Grid: PDF & Statement Upload Area */}
+      {/* Main Action Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Upload Statement Area */}
         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between space-y-5">
@@ -307,20 +337,7 @@ export const CasImporter: React.FC<CasImporterProps> = ({
                   <KeyRound className="w-3.5 h-3.5 text-amber-400" />
                   PDF Statement Password
                 </label>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-neutral-500">Quick fill:</span>
-                  <button
-                    type="button"
-                    onClick={() => setPdfPassword('Testing123#')}
-                    className={`text-[11px] font-mono px-2 py-0.5 rounded border transition cursor-pointer ${
-                      pdfPassword === 'Testing123#'
-                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold'
-                        : 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-white'
-                    }`}
-                  >
-                    Testing123#
-                  </button>
-                </div>
+                <span className="text-[11px] text-neutral-500">Processed locally in-memory</span>
               </div>
 
               <div className="relative flex items-center">
@@ -328,7 +345,13 @@ export const CasImporter: React.FC<CasImporterProps> = ({
                   type={showPassword ? 'text' : 'password'}
                   value={pdfPassword}
                   onChange={(e) => setPdfPassword(e.target.value)}
-                  placeholder="Enter PDF password (e.g. PAN or Testing123#)"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && pendingPdfFile) {
+                      e.preventDefault();
+                      handleRetryWithPassword();
+                    }
+                  }}
+                  placeholder="Enter your PDF statement password..."
                   className="w-full bg-neutral-900 border border-neutral-700 focus:border-emerald-500 rounded-lg px-3 py-1.5 text-xs text-white placeholder-neutral-500 font-mono outline-none pr-16"
                 />
                 <button
@@ -342,22 +365,22 @@ export const CasImporter: React.FC<CasImporterProps> = ({
               </div>
 
               <p className="text-[11px] text-neutral-500 leading-relaxed">
-                CAMS statements typically use your custom password (or lowercase PAN). Enter or change the password above before or after choosing your PDF.
+                For CAMS statements, this is typically your chosen password or PAN in lower/upper case.
               </p>
 
-              {isPasswordRequired && pendingPdfBuffer && (
+              {pendingPdfFile && (
                 <div className="pt-2 border-t border-neutral-800 flex items-center justify-between">
-                  <span className="text-[11px] font-medium text-amber-400 flex items-center gap-1">
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    File loaded: {pendingFileName}
+                  <span className="text-[11px] font-medium text-neutral-300 flex items-center gap-1">
+                    <FileCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="truncate max-w-[170px]">{pendingPdfFile.name}</span>
                   </span>
                   <button
                     type="button"
                     onClick={handleRetryWithPassword}
-                    className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-lg cursor-pointer transition flex items-center gap-1"
+                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg cursor-pointer transition flex items-center gap-1 shadow-sm"
                   >
                     <RefreshCw className="w-3 h-3" />
-                    Unlock & Parse PDF
+                    Parse / Re-parse PDF
                   </button>
                 </div>
               )}
@@ -414,40 +437,24 @@ export const CasImporter: React.FC<CasImporterProps> = ({
           </div>
         </div>
 
-        {/* Presets, Backup & Sample Data Column */}
+        {/* Backup & Statement Features Column */}
         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between space-y-6">
           <div>
             <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-1">
-              <Database className="w-4 h-4 text-teal-400" />
-              Presets & Cloud Backup Vault
+              <Database className="w-4 h-4 text-emerald-400" />
+              Portfolio Backup & Data Vault
             </h3>
             <p className="text-xs text-neutral-400">
-              Export encrypted snapshots to Google Drive or test with realistic portfolio presets.
+              Download your complete portfolio snapshot to keep an offline backup or transfer between devices.
             </p>
 
             <div className="space-y-3 mt-4">
-              {/* Load Demo */}
-              <div className="bg-neutral-800/40 border border-neutral-800 p-4 rounded-xl flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-bold text-white">Load Realistic Demo Portfolio</h4>
-                  <p className="text-[11px] text-neutral-400 mt-0.5">
-                    Pre-populated with 5 top direct funds (PPFAS, HDFC, Quant, Mirae, Kotak) spanning 36 monthly SIPs.
-                  </p>
-                </div>
-                <button
-                  onClick={handleTriggerDemo}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-teal-600 hover:bg-teal-500 text-white cursor-pointer transition shrink-0 ml-3 shadow-sm"
-                >
-                  Load Demo
-                </button>
-              </div>
-
               {/* Export Backup JSON */}
               <div className="bg-neutral-800/40 border border-neutral-800 p-4 rounded-xl flex items-center justify-between">
                 <div>
-                  <h4 className="text-xs font-bold text-white">Export Full Portfolio Backup (.json)</h4>
+                  <h4 className="text-xs font-bold text-white">Export Portfolio Backup (.json)</h4>
                   <p className="text-[11px] text-neutral-400 mt-0.5">
-                    Download complete snapshot of all {transactions.length} transactions, folios, and NAV states to sync across devices via Google Drive.
+                    Download complete snapshot of all {transactions.length} transactions, folios, and NAV records.
                   </p>
                 </div>
                 <button
@@ -462,19 +469,19 @@ export const CasImporter: React.FC<CasImporterProps> = ({
           </div>
 
           <div className="bg-neutral-950/60 p-3.5 rounded-xl border border-neutral-800/80 space-y-2 text-xs">
-            <span className="font-semibold text-neutral-300 block">Supported CAMS Statement Features:</span>
+            <span className="font-semibold text-neutral-300 block">Supported Statement Capabilities:</span>
             <ul className="text-neutral-400 text-[11px] space-y-1">
               <li className="flex items-center gap-1.5">
                 <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-                <span>Encrypted PDF decryption with AES-128 / AES-256 standard</span>
+                <span>Encrypted PDF decryption with AES standard</span>
               </li>
               <li className="flex items-center gap-1.5">
                 <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-                <span>Automatic Folio number and ISIN code extraction</span>
+                <span>Automatic Folio number and clean scheme name identification</span>
               </li>
               <li className="flex items-center gap-1.5">
                 <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-                <span>SIP, Lumpsum, Redemption, Switch In/Out classification</span>
+                <span>Accurate SIP, Lumpsum, Redemption, Switch In/Out classification</span>
               </li>
             </ul>
           </div>

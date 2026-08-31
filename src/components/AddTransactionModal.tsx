@@ -1,18 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, 
-  Search, 
   Plus, 
-  Calendar, 
-  DollarSign, 
-  Sparkles, 
-  Layers, 
-  Check, 
   RefreshCw 
 } from 'lucide-react';
 import { TransactionRecord, TransactionType, MutualFundScheme } from '../types';
 import { searchMutualFunds, fetchSchemeNavDetails, MfSearchResult } from '../services/mfApi';
-import { SCHEMES } from '../data/mockData';
+import { cleanFundDisplayName, detectPlanType, detectOptionType } from '../utils/financialCalculations';
 
 interface AddTransactionModalProps {
   isOpen: boolean;
@@ -34,13 +28,15 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   existingSchemes
 }) => {
   const [schemeCode, setSchemeCode] = useState(initialSchemeCode || '122639');
-  const [schemeName, setSchemeName] = useState(initialSchemeName || 'Parag Parikh Flexi Cap Fund - Direct Plan - Growth');
+  const [schemeName, setSchemeName] = useState(initialSchemeName || 'Parag Parikh Flexi Cap Fund');
+  const [planType, setPlanType] = useState<'Direct' | 'Regular'>('Direct');
+  const [optionType, setOptionType] = useState<'Growth' | 'IDCW'>('Growth');
   const [folioNumber, setFolioNumber] = useState(initialFolio || 'FOLIO-101');
   const [type, setType] = useState<TransactionType>('SIP');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [amount, setAmount] = useState<number>(10000);
-  const [nav, setNav] = useState<number>(82.45);
-  const [units, setUnits] = useState<number>(121.285);
+  const [nav, setNav] = useState<number>(91.1767);
+  const [units, setUnits] = useState<number>(109.677);
   const [notes, setNotes] = useState<string>('');
 
   // Scheme search states
@@ -51,17 +47,39 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   const [isFetchingNav, setIsFetchingNav] = useState(false);
 
   useEffect(() => {
+    const activeCode = initialSchemeCode || schemeCode || '122639';
     if (initialSchemeCode) {
       setSchemeCode(initialSchemeCode);
-      if (initialSchemeName) setSchemeName(initialSchemeName);
-      if (initialFolio) setFolioNumber(initialFolio);
-      const scheme = existingSchemes[initialSchemeCode];
-      if (scheme) {
-        setNav(scheme.currentNav);
-        if (amount > 0 && scheme.currentNav > 0) {
-          setUnits(Math.round((amount / scheme.currentNav) * 1000) / 1000);
-        }
+      if (initialSchemeName) {
+        setSchemeName(cleanFundDisplayName(initialSchemeName));
+        setPlanType(detectPlanType(initialSchemeName, undefined, initialSchemeCode, 'Direct'));
+        setOptionType(detectOptionType(initialSchemeName));
       }
+      if (initialFolio) setFolioNumber(initialFolio);
+    }
+
+    const scheme = existingSchemes[activeCode];
+    if (scheme && scheme.currentNav > 0) {
+      setNav(scheme.currentNav);
+      if (scheme.planType) setPlanType(scheme.planType);
+      if (scheme.optionType) setOptionType(scheme.optionType);
+      if (amount > 0) {
+        setUnits(Math.round((amount / scheme.currentNav) * 1000) / 1000);
+      }
+    } else if (/^\d{5,7}$/.test(activeCode)) {
+      // Auto fetch live NAV for standard AMFI code
+      setIsFetchingNav(true);
+      fetchSchemeNavDetails(activeCode, true).then(detail => {
+        if (detail && detail.data && detail.data.length > 0) {
+          const liveNav = parseFloat(detail.data[0].nav);
+          if (!isNaN(liveNav) && liveNav > 0) {
+            setNav(liveNav);
+            if (amount > 0) {
+              setUnits(Math.round((amount / liveNav) * 1000) / 1000);
+            }
+          }
+        }
+      }).finally(() => setIsFetchingNav(false));
     }
   }, [initialSchemeCode, initialSchemeName, initialFolio, isOpen]);
 
@@ -84,7 +102,9 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
 
   const handleSelectScheme = async (res: MfSearchResult) => {
     setSchemeCode(String(res.schemeCode));
-    setSchemeName(res.schemeName);
+    setSchemeName(cleanFundDisplayName(res.schemeName));
+    if (res.planType) setPlanType(res.planType);
+    if (res.optionType) setOptionType(res.optionType);
     setShowSearchResults(false);
     setSearchQuery('');
 
@@ -118,11 +138,15 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
+    const cleanName = cleanFundDisplayName(schemeName);
+
     const newTx: TransactionRecord = {
       id: `tx-${Date.now()}`,
       folioNumber: folioNumber.trim() || 'FOLIO-1',
       schemeCode,
-      schemeName,
+      schemeName: cleanName,
+      planType,
+      optionType,
       type,
       date,
       units: Math.abs(Number(units)),
@@ -134,16 +158,18 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
 
     const customScheme: MutualFundScheme = {
       schemeCode,
-      schemeName,
-      fundHouse: schemeName.split(' ')[0] + ' Mutual Fund',
-      category: schemeName.toLowerCase().includes('small') ? 'Equity - Small Cap' : schemeName.toLowerCase().includes('mid') ? 'Equity - Mid Cap' : 'Equity - Flexi Cap',
+      schemeName: cleanName,
+      fundHouse: cleanName.split(' ')[0] + ' Mutual Fund',
+      category: cleanName.toLowerCase().includes('small') ? 'Equity - Small Cap' : cleanName.toLowerCase().includes('mid') ? 'Equity - Mid Cap' : 'Equity - Flexi Cap',
+      planType,
+      optionType,
       currentNav: nav,
       navDate: date,
       navChange1D: 0.2,
       cagr3Y: 18.0,
       cagr5Y: 20.0,
       aumCr: 20000,
-      expenseRatio: 0.65,
+      expenseRatio: planType === 'Direct' ? 0.65 : 1.35,
       isin: ''
     };
 
@@ -210,12 +236,71 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                     onClick={() => handleSelectScheme(res)}
                     className="w-full text-left p-2.5 hover:bg-neutral-700/80 text-xs text-neutral-200 transition flex items-center justify-between cursor-pointer"
                   >
-                    <span className="truncate pr-2">{res.schemeName}</span>
+                    <div className="flex items-center gap-1.5 truncate pr-2">
+                      <span className="truncate">{cleanFundDisplayName(res.schemeName)}</span>
+                      <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${res.planType === 'Regular' ? 'bg-amber-950 text-amber-300 border border-amber-800' : 'bg-emerald-950 text-emerald-300 border border-emerald-800'}`}>
+                        {res.planType || 'Direct'}
+                      </span>
+                      <span className="px-1.5 py-0.5 text-[9px] rounded bg-neutral-900 border border-neutral-700 text-neutral-300">
+                        {res.optionType || 'Growth'}
+                      </span>
+                    </div>
                     <span className="text-[10px] text-neutral-400 font-mono shrink-0">#{res.schemeCode}</span>
                   </button>
                 ))}
               </div>
             )}
+          </div>
+
+          {/* Plan Type & Option Type */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-neutral-300 mb-1">Plan Type</label>
+              <div className="flex bg-neutral-800 rounded-xl p-1 border border-neutral-700">
+                <button
+                  type="button"
+                  onClick={() => setPlanType('Direct')}
+                  className={`flex-1 py-1 text-xs font-semibold rounded-lg transition ${
+                    planType === 'Direct' ? 'bg-emerald-600 text-white shadow-sm' : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  Direct Plan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlanType('Regular')}
+                  className={`flex-1 py-1 text-xs font-semibold rounded-lg transition ${
+                    planType === 'Regular' ? 'bg-amber-600 text-white shadow-sm' : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  Regular Plan
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-neutral-300 mb-1">Option Type</label>
+              <div className="flex bg-neutral-800 rounded-xl p-1 border border-neutral-700">
+                <button
+                  type="button"
+                  onClick={() => setOptionType('Growth')}
+                  className={`flex-1 py-1 text-xs font-semibold rounded-lg transition ${
+                    optionType === 'Growth' ? 'bg-neutral-700 text-white shadow-sm' : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  Growth
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOptionType('IDCW')}
+                  className={`flex-1 py-1 text-xs font-semibold rounded-lg transition ${
+                    optionType === 'IDCW' ? 'bg-neutral-700 text-white shadow-sm' : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  IDCW (Dividend)
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Folio & Transaction Type */}

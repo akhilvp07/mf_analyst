@@ -7,18 +7,18 @@ import { PortfolioInsights } from './components/PortfolioInsights';
 import { TaxCalculator } from './components/TaxCalculator';
 import { SipSimulator } from './components/SipSimulator';
 import { CasImporter } from './components/CasImporter';
-import { GoogleHostingAndPerf } from './components/GoogleHostingAndPerf';
 import { AddTransactionModal } from './components/AddTransactionModal';
+import { CheckCircle2, AlertCircle } from 'lucide-react';
 
-import { TransactionRecord, MutualFundScheme, PortfolioHolding, PortfolioSummary } from './types';
+import { TransactionRecord, MutualFundScheme } from './types';
 import { 
   loadStoredTransactions, 
   saveStoredTransactions, 
   loadSchemeCatalog, 
   saveCustomScheme,
-  generateDemoTransactions 
+  saveAllSchemes
 } from './services/portfolioStorage';
-import { batchFetchLatestNavs } from './services/mfApi';
+import { syncSchemesForHoldings, SchemeSyncTarget } from './services/mfApi';
 import { computePortfolioHoldings } from './utils/financialCalculations';
 
 export default function App() {
@@ -27,6 +27,7 @@ export default function App() {
   const [schemes, setSchemes] = useState<Record<string, MutualFundScheme>>({});
   const [isSyncingNavs, setIsSyncingNavs] = useState<boolean>(false);
   const [ledgerSchemeFilter, setLedgerSchemeFilter] = useState<string | undefined>(undefined);
+  const [syncToast, setSyncToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Add Transaction Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -34,12 +35,54 @@ export default function App() {
   const [modalInitialSchemeName, setModalInitialSchemeName] = useState<string | undefined>(undefined);
   const [modalInitialFolio, setModalInitialFolio] = useState<string | undefined>(undefined);
 
-  // Load initial data on mount
+  // Load initial data on mount and trigger auto-sync
   useEffect(() => {
     const loadedTxs = loadStoredTransactions();
     const loadedSchemes = loadSchemeCatalog();
     setTransactions(loadedTxs);
     setSchemes(loadedSchemes);
+
+    if (loadedTxs.length > 0) {
+      const targets: SchemeSyncTarget[] = loadedTxs.map(t => ({
+        schemeCode: t.schemeCode,
+        schemeName: t.schemeName,
+        folioNumber: t.folioNumber
+      }));
+      syncSchemesForHoldings(targets, { forceRefresh: false })
+        .then(({ updatedSchemes, codeMigrations }) => {
+          if (Object.keys(updatedSchemes).length > 0) {
+            setSchemes(prev => {
+              const next = { ...prev, ...updatedSchemes };
+              saveAllSchemes(next);
+              return next;
+            });
+          }
+          if (Object.keys(codeMigrations).length > 0) {
+            setTransactions(prev => {
+              let hasChanges = false;
+              const nextTxs = prev.map(tx => {
+                const newCode = codeMigrations[tx.schemeCode];
+                if (newCode && newCode !== tx.schemeCode) {
+                  hasChanges = true;
+                  const resolved = updatedSchemes[newCode];
+                  return {
+                    ...tx,
+                    schemeCode: newCode,
+                    schemeName: resolved?.schemeName || tx.schemeName
+                  };
+                }
+                return tx;
+              });
+              if (hasChanges) {
+                saveStoredTransactions(nextTxs);
+                return nextTxs;
+              }
+              return prev;
+            });
+          }
+        })
+        .catch(err => console.warn('Background NAV sync failed:', err));
+    }
   }, []);
 
   // Compute live portfolio holdings and summary metrics whenever transactions or schemes change
@@ -49,54 +92,138 @@ export default function App() {
 
   // Sync latest NAVs from AMFI API
   const handleSyncAllNavs = useCallback(async () => {
-    const uniqueCodes: string[] = Array.from(new Set(transactions.map(t => t.schemeCode)));
-    if (uniqueCodes.length === 0) return;
+    const targetMap = new Map<string, SchemeSyncTarget>();
+    
+    transactions.forEach(t => {
+      const code = t.schemeCode;
+      if (!targetMap.has(code)) {
+        targetMap.set(code, {
+          schemeCode: code,
+          schemeName: t.schemeName,
+          folioNumber: t.folioNumber
+        });
+      }
+    });
+
+    Object.values(schemes).forEach((s: MutualFundScheme) => {
+      if (s && s.schemeCode && !targetMap.has(s.schemeCode)) {
+        targetMap.set(s.schemeCode, {
+          schemeCode: s.schemeCode,
+          schemeName: s.schemeName,
+          isin: s.isin
+        });
+      }
+    });
+
+    const targets = Array.from(targetMap.values());
+    if (targets.length === 0) return;
 
     setIsSyncingNavs(true);
     try {
-      const navUpdates = await batchFetchLatestNavs(uniqueCodes);
+      const { updatedSchemes, codeMigrations, totalSynced } = await syncSchemesForHoldings(targets, { forceRefresh: true });
+
       setSchemes(prev => {
-        const next = { ...prev };
-        Object.entries(navUpdates).forEach(([code, update]) => {
-          if (next[code]) {
-            next[code] = {
-              ...next[code],
-              currentNav: update.currentNav,
-              navDate: update.navDate,
-              navChange1D: update.navChange1D
-            };
-            saveCustomScheme(next[code]);
-          }
-        });
+        const next = { ...prev, ...updatedSchemes };
+        saveAllSchemes(next);
         return next;
       });
+
+      if (Object.keys(codeMigrations).length > 0) {
+        setTransactions(prev => {
+          let hasChanges = false;
+          const nextTxs = prev.map(tx => {
+            const newCode = codeMigrations[tx.schemeCode];
+            if (newCode && newCode !== tx.schemeCode) {
+              hasChanges = true;
+              const resolved = updatedSchemes[newCode];
+              return {
+                ...tx,
+                schemeCode: newCode,
+                schemeName: resolved?.schemeName || tx.schemeName
+              };
+            }
+            return tx;
+          });
+
+          if (hasChanges) {
+            saveStoredTransactions(nextTxs);
+            return nextTxs;
+          }
+          return prev;
+        });
+      }
+
+      setSyncToast({
+        message: `Successfully synchronized ${totalSynced} holding(s) with official AMFI live NAVs!`,
+        type: 'success'
+      });
+      setTimeout(() => setSyncToast(null), 3500);
     } catch (err) {
       console.warn('Error syncing NAVs:', err);
+      setSyncToast({
+        message: 'Could not reach AMFI server. Displaying latest available NAVs.',
+        type: 'error'
+      });
+      setTimeout(() => setSyncToast(null), 3500);
     } finally {
       setIsSyncingNavs(false);
     }
-  }, [transactions]);
+  }, [transactions, schemes]);
 
   // Sync a single scheme NAV
-  const handleSyncSingleNav = useCallback(async (schemeCode: string) => {
-    const navUpdates = await batchFetchLatestNavs([schemeCode]);
-    if (navUpdates[schemeCode]) {
-      const update = navUpdates[schemeCode];
-      setSchemes(prev => {
-        const next = { ...prev };
-        if (next[schemeCode]) {
-          next[schemeCode] = {
-            ...next[schemeCode],
-            currentNav: update.currentNav,
-            navDate: update.navDate,
-            navChange1D: update.navChange1D
-          };
-          saveCustomScheme(next[schemeCode]);
+  const handleSyncSingleNav = useCallback(async (schemeCode: string, schemeName?: string, isin?: string) => {
+    try {
+      const target: SchemeSyncTarget = {
+        schemeCode,
+        schemeName: schemeName || schemes[schemeCode]?.schemeName,
+        isin: isin || schemes[schemeCode]?.isin
+      };
+
+      const { updatedSchemes, codeMigrations } = await syncSchemesForHoldings([target], { forceRefresh: true });
+
+      if (Object.keys(updatedSchemes).length > 0) {
+        setSchemes(prev => {
+          const next = { ...prev, ...updatedSchemes };
+          saveAllSchemes(next);
+          return next;
+        });
+
+        if (Object.keys(codeMigrations).length > 0) {
+          setTransactions(prev => {
+            let hasChanges = false;
+            const nextTxs = prev.map(tx => {
+              const newCode = codeMigrations[tx.schemeCode];
+              if (newCode && newCode !== tx.schemeCode) {
+                hasChanges = true;
+                const resolved = updatedSchemes[newCode];
+                return {
+                  ...tx,
+                  schemeCode: newCode,
+                  schemeName: resolved?.schemeName || tx.schemeName
+                };
+              }
+              return tx;
+            });
+
+            if (hasChanges) {
+              saveStoredTransactions(nextTxs);
+              return nextTxs;
+            }
+            return prev;
+          });
         }
-        return next;
-      });
+
+        const syncedScheme = updatedSchemes[schemeCode] || Object.values(updatedSchemes)[0];
+        setSyncToast({
+          message: `Live NAV updated: ${syncedScheme.schemeName} → ₹${syncedScheme.currentNav} (as of ${syncedScheme.navDate})`,
+          type: 'success'
+        });
+        setTimeout(() => setSyncToast(null), 3500);
+      }
+    } catch (err) {
+      console.warn(`Error syncing NAV for scheme ${schemeCode}:`, err);
     }
-  }, []);
+  }, [schemes]);
 
   // Add new transaction handler
   const handleAddTransaction = useCallback((newTx: TransactionRecord, customScheme?: MutualFundScheme) => {
@@ -135,6 +262,55 @@ export default function App() {
     }
   }, []);
 
+  // Switch holding plan between Direct and Regular
+  const handleSwitchPlan = useCallback(async (schemeCode: string, targetPlan: 'Direct' | 'Regular') => {
+    try {
+      const currentScheme = schemes[schemeCode];
+      const schemeName = currentScheme?.schemeName || '';
+      
+      const { updatedSchemes, codeMigrations } = await syncSchemesForHoldings([{
+        schemeCode,
+        schemeName,
+        planType: targetPlan
+      }], { forceRefresh: true });
+
+      if (Object.keys(updatedSchemes).length > 0) {
+        const newCode = codeMigrations[schemeCode] || schemeCode;
+        const resolved = updatedSchemes[newCode] || updatedSchemes[schemeCode];
+
+        setSchemes(prev => {
+          const next = { ...prev, ...updatedSchemes };
+          saveAllSchemes(next);
+          return next;
+        });
+
+        setTransactions(prev => {
+          const nextTxs = prev.map(tx => {
+            if (tx.schemeCode === schemeCode || tx.schemeCode === newCode) {
+              return {
+                ...tx,
+                schemeCode: newCode,
+                schemeName: resolved?.schemeName || tx.schemeName,
+                planType: targetPlan
+              };
+            }
+            return tx;
+          });
+          saveStoredTransactions(nextTxs);
+          return nextTxs;
+        });
+
+        setSyncToast({
+          message: `Switched plan to ${targetPlan} Plan (#${newCode}) with live NAV ₹${resolved?.currentNav}`,
+          type: 'success'
+        });
+        setTimeout(() => setSyncToast(null), 3500);
+      }
+    } catch (err) {
+      console.warn('Error switching plan:', err);
+    }
+  }, [schemes]);
+
   // Import transactions from CAS statement
   const handleImportTransactions = useCallback((imported: TransactionRecord[], replaceExisting: boolean, newSchemes?: Record<string, MutualFundScheme>) => {
     setTransactions(prev => {
@@ -145,20 +321,15 @@ export default function App() {
     if (newSchemes && Object.keys(newSchemes).length > 0) {
       setSchemes(prev => {
         const updated = { ...prev, ...newSchemes };
-        Object.values(newSchemes).forEach(s => saveCustomScheme(s));
+        saveAllSchemes(updated);
         return updated;
       });
     }
     setActiveTab('overview');
-  }, []);
-
-  // Reset to Demo Portfolio
-  const handleResetDemoData = useCallback(() => {
-    const demo = generateDemoTransactions();
-    setTransactions(demo);
-    saveStoredTransactions(demo);
-    setActiveTab('overview');
-  }, []);
+    setTimeout(() => {
+      handleSyncAllNavs();
+    }, 100);
+  }, [handleSyncAllNavs]);
 
   // Open modal with pre-filled scheme info
   const handleOpenAddModal = (code?: string, name?: string, folio?: string) => {
@@ -176,6 +347,24 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans antialiased selection:bg-emerald-900 selection:text-emerald-100">
+      {/* Toast Notification */}
+      {syncToast && (
+        <div className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-3 duration-300">
+          <div className={`px-4 py-3 rounded-xl shadow-xl border flex items-center gap-2.5 text-sm font-medium ${
+            syncToast.type === 'success' 
+              ? 'bg-neutral-900 border-emerald-500/40 text-emerald-300 shadow-emerald-950/30' 
+              : 'bg-neutral-900 border-rose-500/40 text-rose-300 shadow-rose-950/30'
+          }`}>
+            {syncToast.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
+            <span>{syncToast.message}</span>
+          </div>
+        </div>
+      )}
+
       {/* Header with Market Ticker & Tab Navigation */}
       <Header
         activeTab={activeTab}
@@ -206,6 +395,7 @@ export default function App() {
             onViewTransactions={handleViewSchemeLedger}
             onDeleteHolding={handleDeleteHolding}
             onSyncSingleNav={handleSyncSingleNav}
+            onSwitchPlan={handleSwitchPlan}
           />
         )}
 
@@ -236,12 +426,7 @@ export default function App() {
             transactions={transactions}
             schemes={schemes}
             onImportTransactions={handleImportTransactions}
-            onResetDemoData={handleResetDemoData}
           />
-        )}
-
-        {activeTab === 'google-cloud' && (
-          <GoogleHostingAndPerf />
         )}
       </main>
 
