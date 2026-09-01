@@ -1,5 +1,5 @@
 import { TransactionRecord, MutualFundScheme } from '../types';
-import { cleanFundDisplayName, isValidFolioNumber } from '../utils/financialCalculations';
+import { cleanFundDisplayName, isValidFolioNumber, detectPlanType, detectOptionType } from '../utils/financialCalculations';
 
 const STORAGE_KEYS = {
   TRANSACTIONS: 'mftracker_transactions_v2',
@@ -174,14 +174,33 @@ export function parseCasStatement(fileContent: string): { transactions: Transact
   try {
     // Attempt 1: CAS JSON Format (CAMS / KFintech / MFTracker export)
     const json = JSON.parse(fileContent);
+    
+    if (json.customSchemes && typeof json.customSchemes === 'object') {
+      Object.values(json.customSchemes).forEach((s: any) => {
+        if (s && s.schemeCode) {
+          detectedSchemes.push({
+            ...s,
+            schemeName: cleanFundDisplayName(s.schemeName),
+            planType: s.planType || detectPlanType(s.schemeName, s.isin, undefined, 'Direct'),
+            optionType: s.optionType || detectOptionType(s.schemeName, s.isin)
+          });
+        }
+      });
+    }
+
     if (json.transactions && Array.isArray(json.transactions)) {
       json.transactions.forEach((tx: any) => {
         if (tx.schemeCode && tx.amount) {
+          const rawName = tx.schemeName || 'Direct Mutual Fund';
+          const plan = tx.planType || detectPlanType(rawName, tx.isin, undefined, 'Direct');
+          const option = tx.optionType || detectOptionType(rawName, tx.isin);
           resultTxs.push({
             id: tx.id || `cas-${idCounter++}`,
             folioNumber: tx.folioNumber || 'FOLIO-1',
             schemeCode: String(tx.schemeCode),
-            schemeName: cleanFundDisplayName(tx.schemeName || 'Direct Mutual Fund'),
+            schemeName: cleanFundDisplayName(rawName),
+            planType: plan,
+            optionType: option,
             type: tx.type || 'SIP',
             date: tx.date || new Date().toISOString().split('T')[0],
             units: Math.abs(parseFloat(tx.units) || 0),
@@ -223,11 +242,16 @@ export function parseCasStatement(fileContent: string): { transactions: Transact
         else if (typeRaw.includes('SWITCH_IN')) txType = 'SWITCH_IN';
         else if (typeRaw.includes('SWITCH_OUT')) txType = 'SWITCH_OUT';
 
+        const plan = detectPlanType(rawSchemeName, undefined, undefined, 'Direct');
+        const option = detectOptionType(rawSchemeName);
+
         resultTxs.push({
           id: `csv-${idCounter++}`,
           folioNumber: folio,
           schemeCode,
           schemeName: cleanFundDisplayName(rawSchemeName),
+          planType: plan,
+          optionType: option,
           type: txType,
           date: dateStr,
           units,

@@ -43,11 +43,21 @@ export default function App() {
     setSchemes(loadedSchemes);
 
     if (loadedTxs.length > 0) {
-      const targets: SchemeSyncTarget[] = loadedTxs.map(t => ({
-        schemeCode: t.schemeCode,
-        schemeName: t.schemeName,
-        folioNumber: t.folioNumber
-      }));
+      // Collect unique scheme targets strictly from active transactions
+      const targetMap = new Map<string, SchemeSyncTarget>();
+      loadedTxs.forEach(t => {
+        if (!targetMap.has(t.schemeCode)) {
+          targetMap.set(t.schemeCode, {
+            schemeCode: t.schemeCode,
+            schemeName: t.schemeName,
+            folioNumber: t.folioNumber,
+            planType: t.planType,
+            optionType: t.optionType
+          });
+        }
+      });
+
+      const targets = Array.from(targetMap.values());
       syncSchemesForHoldings(targets, { forceRefresh: false })
         .then(({ updatedSchemes, codeMigrations }) => {
           if (Object.keys(updatedSchemes).length > 0) {
@@ -90,33 +100,49 @@ export default function App() {
     return computePortfolioHoldings(transactions, schemes);
   }, [transactions, schemes]);
 
-  // Sync latest NAVs from AMFI API
+  // Sync latest NAVs from AMFI API strictly for active portfolio holdings
   const handleSyncAllNavs = useCallback(async () => {
     const targetMap = new Map<string, SchemeSyncTarget>();
     
-    transactions.forEach(t => {
-      const code = t.schemeCode;
+    // Priority 1: Synchronize only the schemes present in the active portfolio holdings
+    holdings.forEach(h => {
+      const code = h.schemeCode;
       if (!targetMap.has(code)) {
         targetMap.set(code, {
           schemeCode: code,
-          schemeName: t.schemeName,
-          folioNumber: t.folioNumber
+          schemeName: h.schemeName,
+          folioNumber: h.folioNumber,
+          planType: h.planType,
+          isin: h.isin
         });
       }
     });
 
-    Object.values(schemes).forEach((s: MutualFundScheme) => {
-      if (s && s.schemeCode && !targetMap.has(s.schemeCode)) {
-        targetMap.set(s.schemeCode, {
-          schemeCode: s.schemeCode,
-          schemeName: s.schemeName,
-          isin: s.isin
-        });
-      }
-    });
+    // Priority 2 (Fallback): If no active holdings yet, collect distinct schemes from transactions
+    if (targetMap.size === 0) {
+      transactions.forEach(t => {
+        const code = t.schemeCode;
+        if (!targetMap.has(code)) {
+          targetMap.set(code, {
+            schemeCode: code,
+            schemeName: t.schemeName,
+            folioNumber: t.folioNumber,
+            planType: t.planType,
+            optionType: t.optionType
+          });
+        }
+      });
+    }
 
     const targets = Array.from(targetMap.values());
-    if (targets.length === 0) return;
+    if (targets.length === 0) {
+      setSyncToast({
+        message: 'No active holdings in your portfolio to synchronize.',
+        type: 'error'
+      });
+      setTimeout(() => setSyncToast(null), 3000);
+      return;
+    }
 
     setIsSyncingNavs(true);
     try {
@@ -154,7 +180,7 @@ export default function App() {
       }
 
       setSyncToast({
-        message: `Successfully synchronized ${totalSynced} holding(s) with official AMFI live NAVs!`,
+        message: `Successfully synchronized ${totalSynced} active holding${totalSynced === 1 ? '' : 's'} with official AMFI live NAVs!`,
         type: 'success'
       });
       setTimeout(() => setSyncToast(null), 3500);
@@ -168,7 +194,7 @@ export default function App() {
     } finally {
       setIsSyncingNavs(false);
     }
-  }, [transactions, schemes]);
+  }, [holdings, transactions]);
 
   // Sync a single scheme NAV
   const handleSyncSingleNav = useCallback(async (schemeCode: string, schemeName?: string, isin?: string) => {

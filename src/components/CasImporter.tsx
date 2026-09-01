@@ -89,13 +89,15 @@ export const CasImporter: React.FC<CasImporterProps> = ({
               schemeName: cleanName,
               fundHouse: s.fundHouse || 'Mutual Fund',
               category: s.category || 'Equity - Flexi Cap',
+              planType: s.planType || 'Direct',
+              optionType: s.optionType || 'Growth',
               currentNav: s.currentNav && s.currentNav > 0 ? s.currentNav : 85.0,
               navDate: s.navDate || new Date().toISOString().split('T')[0],
               navChange1D: s.navChange1D || 0,
               cagr3Y: 15,
               cagr5Y: 18,
               aumCr: 10000,
-              expenseRatio: 0.75,
+              expenseRatio: s.planType === 'Direct' ? 0.65 : 1.35,
               isin: s.isin || ''
             };
           }
@@ -119,8 +121,15 @@ export const CasImporter: React.FC<CasImporterProps> = ({
           result.detectedSchemes.map(async (s) => {
             if (!s.schemeName) return null;
             try {
-              const live = await resolveSchemeLiveDetails(s.schemeName, s.isin, s.currentNav, true);
-              return { oldCode: s.schemeCode, live };
+              const live = await resolveSchemeLiveDetails(
+                s.schemeName,
+                s.isin,
+                s.currentNav,
+                true,
+                s.planType,
+                s.optionType
+              );
+              return { oldCode: s.schemeCode, live, origPlan: s.planType, origOption: s.optionType };
             } catch {
               return null;
             }
@@ -133,23 +142,31 @@ export const CasImporter: React.FC<CasImporterProps> = ({
           resolved.forEach((item) => {
             if (item && item.live) {
               didUpdate = true;
-              const { oldCode, live } = item;
+              const { oldCode, live, origPlan, origOption } = item;
               if (oldCode && oldCode !== live.schemeCode) {
                 delete updatedSchemeMap[oldCode];
-                updatedTxs = updatedTxs.map(tx => tx.schemeCode === oldCode ? { ...tx, schemeCode: live.schemeCode, schemeName: live.schemeName } : tx);
+                updatedTxs = updatedTxs.map(tx => tx.schemeCode === oldCode ? { 
+                  ...tx, 
+                  schemeCode: live.schemeCode, 
+                  schemeName: live.schemeName,
+                  planType: live.planType || origPlan || tx.planType,
+                  optionType: live.optionType || origOption || tx.optionType
+                } : tx);
               }
               updatedSchemeMap[live.schemeCode] = {
                 schemeCode: live.schemeCode,
                 schemeName: live.schemeName,
                 fundHouse: live.fundHouse,
                 category: live.category,
+                planType: live.planType || origPlan || 'Direct',
+                optionType: live.optionType || origOption || 'Growth',
                 currentNav: live.currentNav,
                 navDate: live.navDate,
                 navChange1D: live.navChange1D,
                 cagr3Y: 15,
                 cagr5Y: 18,
                 aumCr: 10000,
-                expenseRatio: 0.75,
+                expenseRatio: (live.planType || origPlan) === 'Direct' ? 0.65 : 1.35,
                 isin: live.isin || ''
               };
             }

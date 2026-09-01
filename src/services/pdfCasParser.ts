@@ -1,6 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { TransactionRecord, MutualFundScheme } from '../types';
-import { cleanFundDisplayName, isValidFolioNumber } from '../utils/financialCalculations';
+import { cleanFundDisplayName, isValidFolioNumber, detectPlanType, detectOptionType } from '../utils/financialCalculations';
+import { KNOWN_ISIN_MAP, KNOWN_SCHEMES_MAP } from './mfApi';
 
 // Set worker source for pdfjs-dist
 try {
@@ -221,7 +222,7 @@ export function cleanSchemeHeader(rawName: string): string {
 }
 
 /**
- * Generate scheme info with clean fund name, fund house, and category
+ * Generate scheme info with clean fund name, fund house, category, plan type, and ISIN
  */
 export function findOrGenerateSchemeInfo(rawName: string, isin?: string): { 
   code: string; 
@@ -229,11 +230,142 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
   category: MutualFundScheme['category']; 
   fundHouse: string;
   defaultNav: number;
+  planType: 'Direct' | 'Regular';
+  optionType: 'Growth' | 'IDCW';
+  isin?: string;
 } {
+  const isinUpper = (isin || '').toUpperCase().trim();
+  const detectedPlan = detectPlanType(rawName, isin, undefined, 'Direct');
+  const detectedOption = detectOptionType(rawName, isin);
   const cleanRaw = cleanFundDisplayName(rawName);
   const lowerRaw = rawName.toLowerCase();
+  const cleanLower = cleanRaw.toLowerCase();
 
-  // Derive fund house
+  // 1. ISIN check first
+  if (isinUpper && KNOWN_ISIN_MAP[isinUpper]) {
+    const known = KNOWN_ISIN_MAP[isinUpper];
+    return {
+      code: known.schemeCode,
+      name: known.schemeName,
+      category: known.category,
+      fundHouse: known.fundHouse,
+      defaultNav: 85.0,
+      planType: known.planType,
+      optionType: known.optionType,
+      isin: isinUpper
+    };
+  }
+
+  // 2. Specific scheme resolution
+  const isFundOfFund = 
+    lowerRaw.includes('fund of fund') || 
+    lowerRaw.includes('fund of funds') || 
+    lowerRaw.includes('fof') || 
+    lowerRaw.includes('f.o.f') ||
+    cleanLower.includes('fund of fund');
+
+  // Motilal Oswal Nasdaq 100 FoF vs ETF
+  if (
+    (cleanLower.includes('motilal') || cleanLower.includes('motilal oswal')) &&
+    (cleanLower.includes('nasdaq') || cleanLower.includes('nasdaq 100'))
+  ) {
+    if (isFundOfFund || !lowerRaw.includes('etf')) {
+      const code = detectedPlan === 'Regular' ? '145551' : '145552';
+      return {
+        code,
+        name: 'Motilal Oswal Nasdaq 100 Fund of Fund',
+        category: 'Index Fund',
+        fundHouse: 'Motilal Oswal Mutual Fund',
+        defaultNav: 70.0,
+        planType: detectedPlan,
+        optionType: detectedOption,
+        isin: isinUpper || (detectedPlan === 'Regular' ? 'INF247L01700' : 'INF247L01718')
+      };
+    } else {
+      return {
+        code: '114984',
+        name: 'Motilal Oswal Nasdaq 100 ETF',
+        category: 'Index Fund',
+        fundHouse: 'Motilal Oswal Mutual Fund',
+        defaultNav: 274.0,
+        planType: 'Direct',
+        optionType: 'Growth',
+        isin: isinUpper || 'INF247L01AP3'
+      };
+    }
+  }
+
+  // Zerodha ELSS Tax Saver
+  if (
+    cleanLower.includes('zerodha') &&
+    (cleanLower.includes('elss') || cleanLower.includes('tax saver') || cleanLower.includes('largemidcap'))
+  ) {
+    return {
+      code: '152157',
+      name: 'Zerodha ELSS Tax Saver Nifty LargeMidcap 250 Index Fund',
+      category: 'Equity - ELSS',
+      fundHouse: 'Zerodha Mutual Fund',
+      defaultNav: 14.6,
+      planType: 'Direct',
+      optionType: 'Growth',
+      isin: isinUpper || 'INF0R8F01026'
+    };
+  }
+
+  // Axis ELSS Tax Saver Fund
+  if (
+    cleanLower.includes('axis') &&
+    (cleanLower.includes('elss') || cleanLower.includes('tax saver') || cleanLower.includes('long term equity'))
+  ) {
+    let code = '120503';
+    if (detectedPlan === 'Regular' && detectedOption === 'IDCW') code = '112322';
+    else if (detectedPlan === 'Regular') code = '112323';
+    else if (detectedOption === 'IDCW') code = '120502';
+
+    return {
+      code,
+      name: 'Axis ELSS - Tax Saver Fund',
+      category: 'Equity - ELSS',
+      fundHouse: 'Axis Mutual Fund',
+      defaultNav: 112.9,
+      planType: detectedPlan,
+      optionType: detectedOption,
+      isin: isinUpper || (detectedPlan === 'Direct' ? 'INF846K01EW2' : 'INF846K01131')
+    };
+  }
+
+  // Parag Parikh Flexi Cap Fund
+  if (cleanLower.includes('parag parikh') && cleanLower.includes('flexi cap')) {
+    const code = detectedPlan === 'Regular' ? '122640' : '122639';
+    return {
+      code,
+      name: 'Parag Parikh Flexi Cap Fund',
+      category: 'Equity - Flexi Cap',
+      fundHouse: 'PPFAS Mutual Fund',
+      defaultNav: detectedPlan === 'Regular' ? 83.08 : 91.17,
+      planType: detectedPlan,
+      optionType: detectedOption,
+      isin: isinUpper || (detectedPlan === 'Regular' ? 'INF879O01019' : 'INF879O01027')
+    };
+  }
+
+  // Check KNOWN_SCHEMES_MAP by name & plan
+  for (const [code, known] of Object.entries(KNOWN_SCHEMES_MAP)) {
+    if (cleanLower === known.schemeName.toLowerCase() && known.planType === detectedPlan) {
+      return {
+        code,
+        name: known.schemeName,
+        category: known.category,
+        fundHouse: known.fundHouse,
+        defaultNav: known.currentNav,
+        planType: known.planType,
+        optionType: known.optionType,
+        isin: isinUpper || known.isin
+      };
+    }
+  }
+
+  // 3. General fund house derivation
   let fundHouse = 'Mutual Fund';
   if (lowerRaw.includes('parag parikh') || lowerRaw.includes('ppfas')) fundHouse = 'PPFAS Mutual Fund';
   else if (lowerRaw.includes('hdfc')) fundHouse = 'HDFC Mutual Fund';
@@ -263,10 +395,11 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
   else if (lowerRaw.includes('debt') || lowerRaw.includes('gilt') || lowerRaw.includes('short duration') || lowerRaw.includes('bond') || lowerRaw.includes('corporate bond')) category = 'Debt - Short Duration';
   else if (lowerRaw.includes('hybrid') || lowerRaw.includes('balanced') || lowerRaw.includes('multi asset') || lowerRaw.includes('equity savings')) category = 'Hybrid - Aggressive';
 
-  // Deterministic scheme code hash based on clean name
+  // Deterministic scheme code hash based on clean name + plan
   let hash = 0;
-  for (let i = 0; i < cleanRaw.length; i++) {
-    hash = (hash << 5) - hash + cleanRaw.charCodeAt(i);
+  const hashKey = `${cleanRaw}-${detectedPlan}-${detectedOption}`;
+  for (let i = 0; i < hashKey.length; i++) {
+    hash = (hash << 5) - hash + hashKey.charCodeAt(i);
     hash |= 0;
   }
   const syntheticCode = `CAS-${Math.abs(hash % 900000) + 100000}`;
@@ -276,7 +409,10 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
     name: cleanRaw || 'Indian Mutual Fund Scheme',
     category,
     fundHouse,
-    defaultNav: 85.0
+    defaultNav: 85.0,
+    planType: detectedPlan,
+    optionType: detectedOption,
+    isin: isinUpper || undefined
   };
 }
 
@@ -482,6 +618,8 @@ export async function parsePdfCasStatement(
     let currentSchemeName = 'Indian Mutual Fund Scheme';
     let currentIsin = '';
     let currentSchemeCode = '120503';
+    let currentPlanType: 'Direct' | 'Regular' = 'Direct';
+    let currentOptionType: 'Growth' | 'IDCW' = 'Growth';
     let currentCategory: MutualFundScheme['category'] = 'Equity - ELSS';
     let currentFundHouse = 'Axis Mutual Fund';
     let txIdCounter = 1;
@@ -491,12 +629,15 @@ export async function parsePdfCasStatement(
       const cleaned = cleanFundDisplayName(rawName);
       if (!cleaned || cleaned.length < 3) return;
 
-      const info = findOrGenerateSchemeInfo(cleaned, isin || currentIsin);
+      const effectiveIsin = isin || currentIsin;
+      const info = findOrGenerateSchemeInfo(rawName, effectiveIsin);
       currentSchemeName = info.name;
       currentSchemeCode = info.code;
       currentCategory = info.category;
       currentFundHouse = info.fundHouse;
-      if (isin) currentIsin = isin;
+      currentPlanType = info.planType;
+      currentOptionType = info.optionType;
+      if (info.isin || isin) currentIsin = info.isin || isin || '';
 
       if (!detectedSchemesMap.has(currentSchemeCode)) {
         detectedSchemesMap.set(currentSchemeCode, {
@@ -504,6 +645,8 @@ export async function parsePdfCasStatement(
           schemeName: info.name,
           category: info.category,
           fundHouse: info.fundHouse,
+          planType: info.planType,
+          optionType: info.optionType,
           currentNav: info.defaultNav,
           navDate: new Date().toISOString().split('T')[0],
           navChange1D: 0,
@@ -695,6 +838,8 @@ export async function parsePdfCasStatement(
                 folioNumber: isValidFolioNumber(currentFolio) ? currentFolio : 'FOLIO-1',
                 schemeCode: currentSchemeCode,
                 schemeName: cleanFundDisplayName(currentSchemeName),
+                planType: currentPlanType,
+                optionType: currentOptionType,
                 type: txType,
                 date: parsedDate,
                 units: Math.round(units * 1000) / 1000,
@@ -778,6 +923,8 @@ export async function parsePdfCasStatement(
               folioNumber: isValidFolioNumber(currentFolio) ? currentFolio : 'FOLIO-1',
               schemeCode: currentSchemeCode,
               schemeName: cleanFundDisplayName(currentSchemeName),
+              planType: currentPlanType,
+              optionType: currentOptionType,
               type: txType,
               date: curr.parsedDate,
               units: Math.round(units * 1000) / 1000,

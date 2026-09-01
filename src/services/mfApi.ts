@@ -42,6 +42,76 @@ export interface SchemeSyncResult {
   totalFailed: number;
 }
 
+// Known ISIN to AMFI Scheme Code catalog for 100% exact primary identification
+export const KNOWN_ISIN_MAP: Record<string, {
+  schemeCode: string;
+  schemeName: string;
+  fundHouse: string;
+  category: MutualFundScheme['category'];
+  planType: 'Direct' | 'Regular';
+  optionType: 'Growth' | 'IDCW';
+}> = {
+  // Motilal Oswal Nasdaq 100 Fund of Fund (FoF)
+  'INF247L01718': { schemeCode: '145552', schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01031': { schemeCode: '145552', schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01536': { schemeCode: '145552', schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01544': { schemeCode: '145552', schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01528': { schemeCode: '145552', schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01700': { schemeCode: '145551', schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Regular', optionType: 'Growth' },
+  'INF247L01049': { schemeCode: '145551', schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Regular', optionType: 'Growth' },
+  'INF247L01510': { schemeCode: '145551', schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Regular', optionType: 'Growth' },
+
+  // Motilal Oswal Nasdaq 100 ETF (Distinct from Fund of Fund)
+  'INF247L01AP3': { schemeCode: '114984', schemeName: 'Motilal Oswal Nasdaq 100 ETF', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01015': { schemeCode: '114984', schemeName: 'Motilal Oswal Nasdaq 100 ETF', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01023': { schemeCode: '114984', schemeName: 'Motilal Oswal Nasdaq 100 ETF', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Direct', optionType: 'Growth' },
+
+  // Zerodha ELSS Tax Saver Nifty LargeMidcap 250 Index Fund
+  'INF0R8F01026': { schemeCode: '152157', schemeName: 'Zerodha ELSS Tax Saver Nifty LargeMidcap 250 Index Fund', fundHouse: 'Zerodha Mutual Fund', category: 'Equity - ELSS', planType: 'Direct', optionType: 'Growth' },
+
+  // Axis ELSS Tax Saver Fund (Formerly Axis Long Term Equity Fund)
+  'INF846K01EW2': { schemeCode: '120503', schemeName: 'Axis ELSS - Tax Saver Fund', fundHouse: 'Axis Mutual Fund', category: 'Equity - ELSS', planType: 'Direct', optionType: 'Growth' },
+  'INF846K01EV4': { schemeCode: '120502', schemeName: 'Axis ELSS - Tax Saver Fund', fundHouse: 'Axis Mutual Fund', category: 'Equity - ELSS', planType: 'Direct', optionType: 'IDCW' },
+  'INF846K01131': { schemeCode: '112323', schemeName: 'Axis ELSS - Tax Saver Fund', fundHouse: 'Axis Mutual Fund', category: 'Equity - ELSS', planType: 'Regular', optionType: 'Growth' },
+  'INF846K01123': { schemeCode: '112322', schemeName: 'Axis ELSS - Tax Saver Fund', fundHouse: 'Axis Mutual Fund', category: 'Equity - ELSS', planType: 'Regular', optionType: 'IDCW' },
+
+  // Parag Parikh Flexi Cap Fund
+  'INF879O01027': { schemeCode: '122639', schemeName: 'Parag Parikh Flexi Cap Fund', fundHouse: 'PPFAS Mutual Fund', category: 'Equity - Flexi Cap', planType: 'Direct', optionType: 'Growth' },
+  'INF879O01019': { schemeCode: '122640', schemeName: 'Parag Parikh Flexi Cap Fund', fundHouse: 'PPFAS Mutual Fund', category: 'Equity - Flexi Cap', planType: 'Regular', optionType: 'Growth' },
+
+  // Parag Parikh ELSS Tax Saver Fund
+  'INF879O01142': { schemeCode: '147481', schemeName: 'Parag Parikh ELSS Tax Saver Fund', fundHouse: 'PPFAS Mutual Fund', category: 'Equity - ELSS', planType: 'Direct', optionType: 'Growth' },
+  'INF879O01134': { schemeCode: '147482', schemeName: 'Parag Parikh ELSS Tax Saver Fund', fundHouse: 'PPFAS Mutual Fund', category: 'Equity - ELSS', planType: 'Regular', optionType: 'Growth' },
+
+  // Quant Small Cap Fund
+  'INF966L01AA3': { schemeCode: '120828', schemeName: 'Quant Small Cap Fund', fundHouse: 'Quant Mutual Fund', category: 'Equity - Small Cap', planType: 'Direct', optionType: 'Growth' },
+  'INF966L01AB1': { schemeCode: '101635', schemeName: 'Quant Small Cap Fund', fundHouse: 'Quant Mutual Fund', category: 'Equity - Small Cap', planType: 'Regular', optionType: 'Growth' },
+
+  // Mirae Asset Large & Midcap Fund
+  'INF769K01EZ2': { schemeCode: '118834', schemeName: 'Mirae Asset Large & Midcap Fund', fundHouse: 'Mirae Asset Mutual Fund', category: 'Equity - Large Cap', planType: 'Direct', optionType: 'Growth' },
+  'INF769K01111': { schemeCode: '108466', schemeName: 'Mirae Asset Large & Midcap Fund', fundHouse: 'Mirae Asset Mutual Fund', category: 'Equity - Large Cap', planType: 'Regular', optionType: 'Growth' },
+
+  // HDFC Mid-Cap Opportunities Fund
+  'INF179K01CY1': { schemeCode: '118989', schemeName: 'HDFC Mid-Cap Opportunities Fund', fundHouse: 'HDFC Mutual Fund', category: 'Equity - Mid Cap', planType: 'Direct', optionType: 'Growth' },
+  'INF179K01124': { schemeCode: '105758', schemeName: 'HDFC Mid-Cap Opportunities Fund', fundHouse: 'HDFC Mutual Fund', category: 'Equity - Mid Cap', planType: 'Regular', optionType: 'Growth' },
+
+  // Nippon India Small Cap Fund
+  'INF204K01W14': { schemeCode: '118778', schemeName: 'Nippon India Small Cap Fund', fundHouse: 'Nippon India Mutual Fund', category: 'Equity - Small Cap', planType: 'Direct', optionType: 'Growth' },
+  'INF204K01633': { schemeCode: '113177', schemeName: 'Nippon India Small Cap Fund', fundHouse: 'Nippon India Mutual Fund', category: 'Equity - Small Cap', planType: 'Regular', optionType: 'Growth' },
+
+  // ICICI Prudential Bluechip Fund
+  'INF109K01Z48': { schemeCode: '120586', schemeName: 'ICICI Prudential Bluechip Fund', fundHouse: 'ICICI Prudential Mutual Fund', category: 'Equity - Large Cap', planType: 'Direct', optionType: 'Growth' },
+  'INF109K01103': { schemeCode: '108272', schemeName: 'ICICI Prudential Bluechip Fund', fundHouse: 'ICICI Prudential Mutual Fund', category: 'Equity - Large Cap', planType: 'Regular', optionType: 'Growth' },
+
+  // UTI Nifty 50 Index Fund
+  'INF789F01EV8': { schemeCode: '120716', schemeName: 'UTI Nifty 50 Index Fund', fundHouse: 'UTI Mutual Fund', category: 'Index Fund', planType: 'Direct', optionType: 'Growth' },
+  'INF789F01740': { schemeCode: '100122', schemeName: 'UTI Nifty 50 Index Fund', fundHouse: 'UTI Mutual Fund', category: 'Index Fund', planType: 'Regular', optionType: 'Growth' },
+
+  // Axis Small Cap Fund
+  'INF846K01K35': { schemeCode: '120465', schemeName: 'Axis Small Cap Fund', fundHouse: 'Axis Mutual Fund', category: 'Equity - Small Cap', planType: 'Direct', optionType: 'Growth' },
+  'INF846K01230': { schemeCode: '125354', schemeName: 'Axis Small Cap Fund', fundHouse: 'Axis Mutual Fund', category: 'Equity - Small Cap', planType: 'Regular', optionType: 'Growth' }
+};
+
 // Known scheme catalog to accelerate direct matching
 export const KNOWN_SCHEMES_MAP: Record<string, {
   schemeCode: string;
@@ -78,6 +148,78 @@ export const KNOWN_SCHEMES_MAP: Record<string, {
     navDate: '2026-08-28',
     navChange1D: 0.53,
     isin: 'INF879O01019'
+  },
+  '145552': {
+    schemeCode: '145552',
+    schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Index Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 70.0911,
+    navDate: '2026-08-31',
+    navChange1D: 0.45,
+    isin: 'INF247L01718'
+  },
+  '145551': {
+    schemeCode: '145551',
+    schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Index Fund',
+    planType: 'Regular',
+    optionType: 'Growth',
+    currentNav: 68.0339,
+    navDate: '2026-08-31',
+    navChange1D: 0.44,
+    isin: 'INF247L01700'
+  },
+  '114984': {
+    schemeCode: '114984',
+    schemeName: 'Motilal Oswal Nasdaq 100 ETF',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Index Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 274.0275,
+    navDate: '2026-08-31',
+    navChange1D: 0.48,
+    isin: 'INF247L01AP3'
+  },
+  '152157': {
+    schemeCode: '152157',
+    schemeName: 'Zerodha ELSS Tax Saver Nifty LargeMidcap 250 Index Fund',
+    fundHouse: 'Zerodha Mutual Fund',
+    category: 'Equity - ELSS',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 14.6175,
+    navDate: '2026-08-31',
+    navChange1D: 0.32,
+    isin: 'INF0R8F01026'
+  },
+  '120503': {
+    schemeCode: '120503',
+    schemeName: 'Axis ELSS - Tax Saver Fund',
+    fundHouse: 'Axis Mutual Fund',
+    category: 'Equity - ELSS',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 112.9309,
+    navDate: '2026-08-31',
+    navChange1D: 0.41,
+    isin: 'INF846K01EW2'
+  },
+  '112323': {
+    schemeCode: '112323',
+    schemeName: 'Axis ELSS - Tax Saver Fund',
+    fundHouse: 'Axis Mutual Fund',
+    category: 'Equity - ELSS',
+    planType: 'Regular',
+    optionType: 'Growth',
+    currentNav: 98.4210,
+    navDate: '2026-08-31',
+    navChange1D: 0.40,
+    isin: 'INF846K01131'
   },
   '120828': {
     schemeCode: '120828',
@@ -349,13 +491,204 @@ export async function resolveSchemeLiveDetails(
   isin?: string;
 }> {
   const cleanName = cleanFundDisplayName(rawSchemeName);
+  const isinUpper = (isin || '').toUpperCase().trim();
   const detectedPlan = targetPlan || detectPlanType(rawSchemeName, isin, undefined, 'Direct');
   const detectedOption = targetOption || detectOptionType(rawSchemeName, isin);
-
-  // 1. Check known fast map
+  const rawLower = rawSchemeName.toLowerCase();
   const cleanLower = cleanName.toLowerCase();
 
-  // Specific check for Parag Parikh Flexi Cap Fund
+  // -------------------------------------------------------------
+  // STEP 1: ISIN Matching (Absolute Highest Priority)
+  // -------------------------------------------------------------
+  if (isinUpper && isinUpper.length >= 10) {
+    // Check known ISIN catalog
+    if (KNOWN_ISIN_MAP[isinUpper]) {
+      const known = KNOWN_ISIN_MAP[isinUpper];
+      const detail = await fetchSchemeNavDetails(known.schemeCode, forceRefresh);
+      if (detail && detail.data && detail.data.length > 0) {
+        const latest = detail.data[0];
+        const prev = detail.data.length > 1 ? detail.data[1] : latest;
+        const cNav = parseFloat(latest.nav);
+        const pNav = parseFloat(prev.nav);
+        const change1D = pNav > 0 ? ((cNav - pNav) / pNav) * 100 : 0;
+
+        return {
+          schemeCode: known.schemeCode,
+          schemeName: cleanFundDisplayName(detail.meta.scheme_name || known.schemeName),
+          planType: known.planType,
+          optionType: known.optionType,
+          currentNav: isNaN(cNav) ? (fallbackNav || 85.0) : cNav,
+          navDate: formatNavDateToIso(latest.date),
+          navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
+          fundHouse: detail.meta.fund_house || known.fundHouse,
+          category: known.category,
+          isin: isinUpper
+        };
+      }
+    }
+
+    // Check KNOWN_SCHEMES_MAP by ISIN
+    for (const [code, known] of Object.entries(KNOWN_SCHEMES_MAP)) {
+      if (known.isin && known.isin.toUpperCase() === isinUpper) {
+        const detail = await fetchSchemeNavDetails(code, forceRefresh);
+        if (detail && detail.data && detail.data.length > 0) {
+          const latest = detail.data[0];
+          const prev = detail.data.length > 1 ? detail.data[1] : latest;
+          const cNav = parseFloat(latest.nav);
+          const pNav = parseFloat(prev.nav);
+          const change1D = pNav > 0 ? ((cNav - pNav) / pNav) * 100 : known.navChange1D;
+
+          return {
+            schemeCode: code,
+            schemeName: cleanFundDisplayName(detail.meta.scheme_name || known.schemeName),
+            planType: known.planType,
+            optionType: known.optionType,
+            currentNav: isNaN(cNav) ? known.currentNav : cNav,
+            navDate: formatNavDateToIso(latest.date),
+            navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
+            fundHouse: detail.meta.fund_house || known.fundHouse,
+            category: known.category,
+            isin: isinUpper
+          };
+        }
+      }
+    }
+  }
+
+  // -------------------------------------------------------------
+  // STEP 2: Name & Keyword Direct Resolution (FoF vs ETF, Specific Schemes)
+  // -------------------------------------------------------------
+  const isFundOfFund = 
+    rawLower.includes('fund of fund') || 
+    rawLower.includes('fund of funds') || 
+    rawLower.includes('fof') || 
+    rawLower.includes('f.o.f') ||
+    cleanLower.includes('fund of fund') ||
+    cleanLower.includes('fund of funds') ||
+    cleanLower.includes('fof');
+
+  // Motilal Oswal Nasdaq 100: Distinguish between Fund of Fund (145552/145551) and ETF (114984)
+  if (
+    (cleanLower.includes('motilal') || cleanLower.includes('motilal oswal')) &&
+    (cleanLower.includes('nasdaq') || cleanLower.includes('nasdaq 100'))
+  ) {
+    if (isFundOfFund || !rawLower.includes('etf')) {
+      const targetCode = detectedPlan === 'Regular' ? '145551' : '145552';
+      const known = KNOWN_SCHEMES_MAP[targetCode];
+      const detail = await fetchSchemeNavDetails(targetCode, forceRefresh);
+      if (detail && detail.data && detail.data.length > 0) {
+        const latest = detail.data[0];
+        const prev = detail.data.length > 1 ? detail.data[1] : latest;
+        const cNav = parseFloat(latest.nav);
+        const pNav = parseFloat(prev.nav);
+        const change1D = pNav > 0 ? ((cNav - pNav) / pNav) * 100 : known.navChange1D;
+
+        return {
+          schemeCode: targetCode,
+          schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund',
+          planType: detectedPlan,
+          optionType: detectedOption,
+          currentNav: isNaN(cNav) ? known.currentNav : cNav,
+          navDate: formatNavDateToIso(latest.date),
+          navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
+          fundHouse: 'Motilal Oswal Mutual Fund',
+          category: 'Index Fund',
+          isin: detectedPlan === 'Regular' ? 'INF247L01700' : 'INF247L01718'
+        };
+      }
+    } else {
+      // Pure ETF
+      const targetCode = '114984';
+      const known = KNOWN_SCHEMES_MAP[targetCode];
+      const detail = await fetchSchemeNavDetails(targetCode, forceRefresh);
+      if (detail && detail.data && detail.data.length > 0) {
+        const latest = detail.data[0];
+        const prev = detail.data.length > 1 ? detail.data[1] : latest;
+        const cNav = parseFloat(latest.nav);
+        const pNav = parseFloat(prev.nav);
+        const change1D = pNav > 0 ? ((cNav - pNav) / pNav) * 100 : known.navChange1D;
+
+        return {
+          schemeCode: targetCode,
+          schemeName: 'Motilal Oswal Nasdaq 100 ETF',
+          planType: 'Direct',
+          optionType: 'Growth',
+          currentNav: isNaN(cNav) ? known.currentNav : cNav,
+          navDate: formatNavDateToIso(latest.date),
+          navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
+          fundHouse: 'Motilal Oswal Mutual Fund',
+          category: 'Index Fund',
+          isin: 'INF247L01AP3'
+        };
+      }
+    }
+  }
+
+  // Zerodha ELSS Tax Saver Nifty LargeMidcap 250 Index Fund
+  if (
+    cleanLower.includes('zerodha') &&
+    (cleanLower.includes('elss') || cleanLower.includes('tax saver') || cleanLower.includes('largemidcap'))
+  ) {
+    const targetCode = '152157';
+    const known = KNOWN_SCHEMES_MAP[targetCode];
+    const detail = await fetchSchemeNavDetails(targetCode, forceRefresh);
+    if (detail && detail.data && detail.data.length > 0) {
+      const latest = detail.data[0];
+      const prev = detail.data.length > 1 ? detail.data[1] : latest;
+      const cNav = parseFloat(latest.nav);
+      const pNav = parseFloat(prev.nav);
+      const change1D = pNav > 0 ? ((cNav - pNav) / pNav) * 100 : known.navChange1D;
+
+      return {
+        schemeCode: targetCode,
+        schemeName: 'Zerodha ELSS Tax Saver Nifty LargeMidcap 250 Index Fund',
+        planType: 'Direct',
+        optionType: 'Growth',
+        currentNav: isNaN(cNav) ? known.currentNav : cNav,
+        navDate: formatNavDateToIso(latest.date),
+        navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
+        fundHouse: 'Zerodha Mutual Fund',
+        category: 'Equity - ELSS',
+        isin: 'INF0R8F01026'
+      };
+    }
+  }
+
+  // Axis ELSS Tax Saver Fund
+  if (
+    cleanLower.includes('axis') &&
+    (cleanLower.includes('elss') || cleanLower.includes('tax saver') || cleanLower.includes('long term equity'))
+  ) {
+    let targetCode = '120503'; // Direct Growth
+    if (detectedPlan === 'Regular' && detectedOption === 'IDCW') targetCode = '112322';
+    else if (detectedPlan === 'Regular') targetCode = '112323';
+    else if (detectedOption === 'IDCW') targetCode = '120502';
+
+    const known = KNOWN_SCHEMES_MAP[targetCode];
+    const detail = await fetchSchemeNavDetails(targetCode, forceRefresh);
+    if (detail && detail.data && detail.data.length > 0) {
+      const latest = detail.data[0];
+      const prev = detail.data.length > 1 ? detail.data[1] : latest;
+      const cNav = parseFloat(latest.nav);
+      const pNav = parseFloat(prev.nav);
+      const change1D = pNav > 0 ? ((cNav - pNav) / pNav) * 100 : (known?.navChange1D ?? 0);
+
+      return {
+        schemeCode: targetCode,
+        schemeName: 'Axis ELSS - Tax Saver Fund',
+        planType: detectedPlan,
+        optionType: detectedOption,
+        currentNav: isNaN(cNav) ? (known?.currentNav ?? 112.93) : cNav,
+        navDate: formatNavDateToIso(latest.date),
+        navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
+        fundHouse: 'Axis Mutual Fund',
+        category: 'Equity - ELSS',
+        isin: isinUpper || (detectedPlan === 'Direct' ? 'INF846K01EW2' : 'INF846K01131')
+      };
+    }
+  }
+
+  // Parag Parikh Flexi Cap Fund
   if (cleanLower.includes('parag parikh') && cleanLower.includes('flexi cap')) {
     const targetCode = detectedPlan === 'Regular' ? '122640' : '122639';
     const known = KNOWN_SCHEMES_MAP[targetCode];
@@ -369,7 +702,7 @@ export async function resolveSchemeLiveDetails(
 
       return {
         schemeCode: targetCode,
-        schemeName: cleanFundDisplayName(detail.meta.scheme_name || known.schemeName),
+        schemeName: 'Parag Parikh Flexi Cap Fund',
         planType: detectedPlan,
         optionType: detectedOption,
         currentNav: isNaN(cNav) ? known.currentNav : cNav,
@@ -377,12 +710,12 @@ export async function resolveSchemeLiveDetails(
         navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
         fundHouse: detail.meta.fund_house || known.fundHouse,
         category: known.category,
-        isin: (detectedPlan === 'Regular' ? 'INF879O01019' : 'INF879O01027')
+        isin: detectedPlan === 'Regular' ? 'INF879O01019' : 'INF879O01027'
       };
     }
     return {
       ...known,
-      schemeName: cleanName,
+      schemeName: 'Parag Parikh Flexi Cap Fund',
       planType: detectedPlan,
       optionType: detectedOption
     };
@@ -390,9 +723,8 @@ export async function resolveSchemeLiveDetails(
 
   // Check other known schemes
   for (const [code, known] of Object.entries(KNOWN_SCHEMES_MAP)) {
-    const isinMatch = isin && known.isin && isin.toUpperCase() === known.isin.toUpperCase();
     const nameAndPlanMatch = cleanLower === known.schemeName.toLowerCase() && known.planType === detectedPlan;
-    if (isinMatch || nameAndPlanMatch) {
+    if (nameAndPlanMatch) {
       const detail = await fetchSchemeNavDetails(code, forceRefresh);
       if (detail && detail.data && detail.data.length > 0) {
         const latest = detail.data[0];
@@ -411,7 +743,7 @@ export async function resolveSchemeLiveDetails(
           navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
           fundHouse: detail.meta.fund_house || known.fundHouse,
           category: known.category,
-          isin: isin || detail.meta.isin_growth || known.isin
+          isin: isinUpper || detail.meta.isin_growth || known.isin
         };
       }
 
@@ -422,7 +754,9 @@ export async function resolveSchemeLiveDetails(
     }
   }
 
-  // 2. Try online search via MF API
+  // -------------------------------------------------------------
+  // STEP 3: Online Search via MF API with Disambiguation
+  // -------------------------------------------------------------
   try {
     const searchTokens = cleanName
       .replace(/[^a-zA-Z0-9\s]/g, ' ')
@@ -437,8 +771,18 @@ export async function resolveSchemeLiveDetails(
       const wantsDirect = detectedPlan === 'Direct';
       const wantsGrowth = detectedOption === 'Growth';
       
-      let bestMatch = searchResults[0];
-      for (const res of searchResults) {
+      // Filter candidates with FoF / ETF awareness
+      let candidates = searchResults;
+      if (isFundOfFund) {
+        const fofFiltered = candidates.filter(c => {
+          const cLower = c.schemeName.toLowerCase();
+          return cLower.includes('fund of fund') || cLower.includes('fof') || !cLower.includes('etf');
+        });
+        if (fofFiltered.length > 0) candidates = fofFiltered;
+      }
+
+      let bestMatch = candidates[0];
+      for (const res of candidates) {
         const rLower = res.schemeName.toLowerCase();
         const isResDirect = rLower.includes('direct') || rLower.includes('- dir') || rLower.includes('(dir)');
         const isResGrowth = rLower.includes('growth') || (!rLower.includes('idcw') && !rLower.includes('dividend'));
@@ -471,7 +815,7 @@ export async function resolveSchemeLiveDetails(
           navChange1D: Math.round(change1D * 100) / 100,
           fundHouse: detail.meta.fund_house || 'Mutual Fund',
           category: cat,
-          isin: isin || detail.meta.isin_growth
+          isin: isinUpper || detail.meta.isin_growth
         };
       }
     }
@@ -479,7 +823,9 @@ export async function resolveSchemeLiveDetails(
     console.warn('[MF API] Error in resolveSchemeLiveDetails:', err);
   }
 
-  // 3. Fallback: Generate synthetic scheme metadata
+  // -------------------------------------------------------------
+  // STEP 4: Fallback Synthetic Scheme
+  // -------------------------------------------------------------
   let hash = 0;
   for (let i = 0; i < cleanName.length; i++) {
     hash = (hash << 5) - hash + cleanName.charCodeAt(i);
@@ -497,7 +843,7 @@ export async function resolveSchemeLiveDetails(
     navChange1D: 0,
     fundHouse: 'Mutual Fund',
     category: mapSchemeCategory('', cleanName),
-    isin
+    isin: isinUpper || undefined
   };
 }
 

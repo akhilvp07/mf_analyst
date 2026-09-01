@@ -121,7 +121,7 @@ export function cleanFundDisplayName(rawName: string): string {
   if (!rawName) return 'Mutual Fund';
   let clean = rawName
     .replace(/[\r\n\t]+/g, ' ')
-    // Remove ISIN fragments e.g. (ISIN: INF247L01536), ISIN: INF247L01536
+    // Remove ISIN fragments e.g. (ISIN: INF247L01536), ISIN: INF247L01536, ISIN:INF...
     .replace(/\(?\bISIN\b[\s:]*[A-Z0-9]+[A-Z0-9\)]*/gi, '')
     .replace(/\(ISIN:[^\)]*\)?/gi, '')
     // Remove Folio, Advisor, Registrar artifacts
@@ -130,34 +130,50 @@ export function cleanFundDisplayName(rawName: string): string {
     .replace(/Registrar\s*[:\-\s]*[^\-]+/gi, '')
     // Remove Demat indicators e.g. (Demat), [Demat], Demat
     .replace(/\(?\[?\bDemat(?:\s+Account)?\b\]?\)?/gi, '')
-    // Remove leading Scheme Name labels or alphanumeric codes
+    // Remove leading Scheme Name labels or alphanumeric codes e.g. 128TSDGG-Axis
     .replace(/^\s*(?:Scheme\s*Name\s*[:\-\s]*|Scheme\s*[:\-\s]*|[0-9A-Z]{3,8}\s*[-–—]\s*)/i, '')
-    // Remove Plan & Option descriptors (Direct, Regular, Growth, IDCW, Dividend, Reinvestment)
-    .replace(/[-–—]?\s*\bDirect\s+Plan\s+Growth\b/gi, '')
-    .replace(/[-–—]?\s*\bDirect\s+Plan\s*[-–—]\s*Growth\b/gi, '')
-    .replace(/[-–—]?\s*\bDirect\s+Plan\b/gi, '')
-    .replace(/[-–—]?\s*\bRegular\s+Plan\b/gi, '')
-    .replace(/[-–—]?\s*\bDirect\s*[-–—]\s*Growth\b/gi, '')
-    .replace(/[-–—]?\s*\bRegular\s*[-–—]\s*Growth\b/gi, '')
-    .replace(/[-–—]?\s*\bGrowth\s+Option\b/gi, '')
-    .replace(/[-–—]?\s*\bGrowth\s+Plan\b/gi, '')
-    .replace(/[-–—]?\s*\bGrowth\b/gi, '')
-    .replace(/[-–—]?\s*\bDirect\b/gi, '')
-    .replace(/[-–—]?\s*\bRegular\b/gi, '')
-    .replace(/[-–—]?\s*\bIDCW\s+Option\b/gi, '')
-    .replace(/[-–—]?\s*\bIDCW\s+Plan\b/gi, '')
-    .replace(/[-–—]?\s*\bIDCW\s+Reinvestment\b/gi, '')
-    .replace(/[-–—]?\s*\bIDCW\b/gi, '')
-    .replace(/[-–—]?\s*\bDividend\s+Reinvestment\b/gi, '')
-    .replace(/[-–—]?\s*\bDividend\b/gi, '')
-    .replace(/[-–—]?\s*\bReinvestment\b/gi, '')
-    // Remove trailing brackets, hyphens, colons, commas, dots
+    // Normalize dashes surrounded by letters e.g. ELSS- Tax -> ELSS - Tax
+    .replace(/([a-zA-Z0-9])-([a-zA-Z0-9])/g, '$1 - $2');
+
+  // Strip Plan & Option descriptors comprehensively
+  const removePatterns = [
+    /[-–—]?\s*\b(?:Direct|Regular)\s+(?:Plan|Option)\s*[-–—]?\s*(?:Growth|IDCW|Dividend|Reinvestment|Payout)(?:\s+(?:Option|Plan))?\b/gi,
+    /[-–—]?\s*\b(?:Direct|Regular)\s*[-–—]?\s*(?:Growth|IDCW|Dividend|Reinvestment|Payout)(?:\s+(?:Option|Plan))?\b/gi,
+    /[-–—]?\s*\b(?:Growth|IDCW|Dividend|Reinvestment|Payout)\s+(?:Option|Plan)\b/gi,
+    /[-–—]?\s*\b(?:Direct|Regular)\s+(?:Plan|Option)\b/gi,
+    /[-–—]?\s*\b(?:Direct|Regular)\b/gi,
+    /[-–—]?\s*\b(?:Growth|IDCW|Dividend|Reinvestment|Payout|Bonus|Cumulative)\b/gi,
+    /[-–—]?\s*\b(?:Option|Options|Plan|Plans)\b/gi
+  ];
+
+  for (const pattern of removePatterns) {
+    clean = clean.replace(pattern, ' ');
+  }
+
+  // Remove trailing and leading punctuation, hyphens, brackets
+  clean = clean
+    .replace(/\s*[-–—]\s*[-–—]\s*/g, ' - ')
     .replace(/[\(\[\{\)\]\}\-–—:,\.]+\s*$/g, '')
     .replace(/^\s*[\(\[\{\)\]\}\-–—:,\.]+/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 
-  // Second pass to ensure no dangling hyphens or open parens at the end
+  // Final cleanup of any trailing dangling hyphens, colons, dots, spaces
+  clean = clean.replace(/[-–—\(\[\{\:\,\.\s]+$/, '').trim();
+
+  // Standardize ELSS - Tax spacing
+  clean = clean.replace(/\bELSS\s*-\s*Tax\b/gi, 'ELSS - Tax');
+  clean = clean.replace(/\bELSS\s+Tax\b/gi, 'ELSS Tax');
+
+  // Motilal Oswal Nasdaq 100 Fund of Fund formatting
+  if (/motilal/i.test(clean) && /nasdaq/i.test(clean)) {
+    if (/fund of fund|fof|f\.o\.f/i.test(rawName) || /fund of fund|fof|f\.o\.f/i.test(clean)) {
+      clean = 'Motilal Oswal Nasdaq 100 Fund of Fund';
+    }
+  }
+
+  // Remove any remaining dangling words like 'Option' or 'Plan' at the end
+  clean = clean.replace(/\b(?:Option|Options|Plan|Plans)\b\s*$/gi, '').trim();
   clean = clean.replace(/[-–—\(\[\{\:\,\.\s]+$/, '').trim();
 
   return clean || rawName.trim();
@@ -173,16 +189,62 @@ export function detectPlanType(
   defaultPlan: 'Direct' | 'Regular' = 'Direct'
 ): 'Direct' | 'Regular' {
   const isinUpper = (isin || '').toUpperCase();
-  if (isinUpper === 'INF879O01019') return 'Regular';
-  if (isinUpper === 'INF879O01027') return 'Direct';
-  if (schemeCode === '122640') return 'Regular';
-  if (schemeCode === '122639') return 'Direct';
-
-  const text = (nameOrText || '').toLowerCase();
-  if (text.includes('regular plan') || text.includes('regular') || text.includes('- reg') || text.includes('(reg)')) {
+  if (
+    isinUpper === 'INF879O01019' || // PPFAS Regular
+    isinUpper === 'INF247L01700' || // Motilal Oswal FoF Regular
+    isinUpper === 'INF247L01049' ||
+    isinUpper === 'INF247L01510' ||
+    isinUpper === 'INF846K01131' || // Axis ELSS Regular Growth
+    isinUpper === 'INF846K01123' || // Axis ELSS Regular IDCW
+    isinUpper === 'INF966L01AB1' || // Quant Small Cap Regular
+    isinUpper === 'INF769K01111' || // Mirae Large & Midcap Regular
+    isinUpper === 'INF179K01124' || // HDFC Mid-Cap Regular
+    isinUpper === 'INF204K01633' || // Nippon Small Cap Regular
+    isinUpper === 'INF109K01103' || // ICICI Bluechip Regular
+    isinUpper === 'INF789F01740'    // UTI Nifty 50 Regular
+  ) {
     return 'Regular';
   }
-  if (text.includes('direct plan') || text.includes('direct') || text.includes('- dir') || text.includes('(dir)')) {
+
+  if (
+    isinUpper === 'INF879O01027' || // PPFAS Direct
+    isinUpper === 'INF247L01718' || // Motilal Oswal FoF Direct
+    isinUpper === 'INF247L01031' ||
+    isinUpper === 'INF247L01536' ||
+    isinUpper === 'INF0R8F01026' || // Zerodha ELSS Direct
+    isinUpper === 'INF846K01EW2' || // Axis ELSS Direct Growth
+    isinUpper === 'INF846K01EV4' || // Axis ELSS Direct IDCW
+    isinUpper === 'INF966L01AA3' || // Quant Small Cap Direct
+    isinUpper === 'INF769K01EZ2' || // Mirae Large & Midcap Direct
+    isinUpper === 'INF179K01CY1' || // HDFC Mid-Cap Direct
+    isinUpper === 'INF204K01W14' || // Nippon Small Cap Direct
+    isinUpper === 'INF109K01Z48' || // ICICI Bluechip Direct
+    isinUpper === 'INF789F01EV8'    // UTI Nifty 50 Direct
+  ) {
+    return 'Direct';
+  }
+
+  if (schemeCode === '122640' || schemeCode === '145551' || schemeCode === '112323' || schemeCode === '112322') return 'Regular';
+  if (schemeCode === '122639' || schemeCode === '145552' || schemeCode === '152157' || schemeCode === '120503' || schemeCode === '120502') return 'Direct';
+
+  const text = (nameOrText || '').toLowerCase();
+  if (
+    text.includes('regular plan') || 
+    text.includes('regular') || 
+    text.includes('- reg') || 
+    text.includes('(reg)') ||
+    text.includes(' reg ') ||
+    text.includes('institutional')
+  ) {
+    return 'Regular';
+  }
+  if (
+    text.includes('direct plan') || 
+    text.includes('direct') || 
+    text.includes('- dir') || 
+    text.includes('(dir)') ||
+    text.includes(' dir ')
+  ) {
     return 'Direct';
   }
   return defaultPlan;
@@ -195,13 +257,17 @@ export function detectOptionType(
   nameOrText: string = '',
   isin?: string
 ): 'Growth' | 'IDCW' {
+  const isinUpper = (isin || '').toUpperCase();
+  if (isinUpper === 'INF846K01EV4' || isinUpper === 'INF846K01123') return 'IDCW';
+
   const text = (nameOrText || '').toLowerCase();
   if (
     text.includes('idcw') ||
     text.includes('dividend') ||
     text.includes('payout') ||
     text.includes('reinvestment') ||
-    text.includes('re-investment')
+    text.includes('re-investment') ||
+    text.includes('bonus')
   ) {
     return 'IDCW';
   }
