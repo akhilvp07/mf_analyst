@@ -1,5 +1,6 @@
 import { MutualFundScheme } from '../types';
 import { cleanFundDisplayName, detectPlanType, detectOptionType } from '../utils/financialCalculations';
+import { lookupAmfiByIsin, lookupAmfiBySchemeCode, loadAmfiNavDatabase } from './amfiNavService';
 
 export interface MfApiSchemeDetail {
   meta: {
@@ -498,9 +499,49 @@ export async function resolveSchemeLiveDetails(
   const cleanLower = cleanName.toLowerCase();
 
   // -------------------------------------------------------------
-  // STEP 1: ISIN Matching (Absolute Highest Priority)
+  // STEP 1: ISIN Matching against Official AMFI NAV Database (Source of Truth)
   // -------------------------------------------------------------
   if (isinUpper && isinUpper.length >= 10) {
+    const amfiRec = lookupAmfiByIsin(isinUpper);
+    if (amfiRec) {
+      let cNav = amfiRec.currentNav;
+      let navDate = amfiRec.navDate;
+      let change1D = 0;
+
+      // Also try fetching from MF API for 1D historical change
+      try {
+        const detail = await fetchSchemeNavDetails(amfiRec.schemeCode, forceRefresh);
+        if (detail && detail.data && detail.data.length > 0) {
+          const latest = detail.data[0];
+          const prev = detail.data.length > 1 ? detail.data[1] : latest;
+          const apiNav = parseFloat(latest.nav);
+          const prevNav = parseFloat(prev.nav);
+          if (!isNaN(apiNav) && apiNav > 0) cNav = apiNav;
+          if (prevNav > 0 && cNav > 0) {
+            change1D = ((cNav - prevNav) / prevNav) * 100;
+          }
+          if (latest.date) {
+            navDate = formatNavDateToIso(latest.date);
+          }
+        }
+      } catch {
+        // AMFI record is already valid
+      }
+
+      return {
+        schemeCode: amfiRec.schemeCode,
+        schemeName: amfiRec.schemeName,
+        planType: amfiRec.planType,
+        optionType: amfiRec.optionType,
+        currentNav: cNav > 0 ? cNav : (fallbackNav || 85.0),
+        navDate: navDate || new Date().toISOString().split('T')[0],
+        navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
+        fundHouse: amfiRec.fundHouse,
+        category: amfiRec.category,
+        isin: isinUpper
+      };
+    }
+
     // Check known ISIN catalog
     if (KNOWN_ISIN_MAP[isinUpper]) {
       const known = KNOWN_ISIN_MAP[isinUpper];
@@ -859,13 +900,16 @@ export async function syncSchemesForHoldings(
   let totalSynced = 0;
   let totalFailed = 0;
 
+  // Preload latest AMFI NAV database
+  await loadAmfiNavDatabase(options.forceRefresh ?? false).catch(() => {});
+
   // Deduplicate targets
   const uniqueTargets: SchemeSyncTarget[] = [];
   const seenKeys = new Set<string>();
 
   targets.forEach(t => {
-    const key = `${t.schemeCode}_${t.schemeName || ''}_${t.planType || ''}`;
-    if (!seenKeys.has(key) && (t.schemeCode || t.schemeName)) {
+    const key = `${t.schemeCode}_${t.isin || ''}_${t.schemeName || ''}_${t.planType || ''}`;
+    if (!seenKeys.has(key) && (t.schemeCode || t.schemeName || t.isin)) {
       seenKeys.add(key);
       uniqueTargets.push(t);
     }
@@ -874,6 +918,19 @@ export async function syncSchemesForHoldings(
   const promises = uniqueTargets.map(async (target) => {
     let rawCode = (target.schemeCode || '').trim();
     const rawName = target.schemeName || '';
+    const isinUpper = (target.isin || '').toUpperCase().trim();
+
+    // Check AMFI database by ISIN first
+    if (isinUpper && isinUpper.length >= 10) {
+      const amfi = lookupAmfiByIsin(isinUpper);
+      if (amfi) {
+        if (rawCode && rawCode !== amfi.schemeCode) {
+          codeMigrations[rawCode] = amfi.schemeCode;
+        }
+        rawCode = amfi.schemeCode;
+      }
+    }
+
     const cleanName = cleanFundDisplayName(rawName);
     const planType = target.planType || detectPlanType(rawName, target.isin, rawCode, 'Direct');
     const optionType = target.optionType || detectOptionType(rawName, target.isin);

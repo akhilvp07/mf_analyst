@@ -1,11 +1,36 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import https from 'https';
+import {defineConfig, Plugin} from 'vite';
+
+function amfiNavProxyPlugin(): Plugin {
+  return {
+    name: 'amfi-nav-proxy',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url === '/api/amfi-nav' || req.url === '/api/amfi/navall') {
+          const amfiReq = https.get('https://portal.amfiindia.com/spages/NAVAll.txt', (amfiRes) => {
+            res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Cache-Control', 'public, max-age=3600');
+            amfiRes.pipe(res);
+          });
+          amfiReq.on('error', (err) => {
+            res.statusCode = 502;
+            res.end('Error fetching AMFI NAV data: ' + err.message);
+          });
+          return;
+        }
+        next();
+      });
+    },
+  };
+}
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), amfiNavProxyPlugin()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

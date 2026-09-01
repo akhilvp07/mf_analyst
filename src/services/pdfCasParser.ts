@@ -2,6 +2,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { TransactionRecord, MutualFundScheme } from '../types';
 import { cleanFundDisplayName, isValidFolioNumber, detectPlanType, detectOptionType } from '../utils/financialCalculations';
 import { KNOWN_ISIN_MAP, KNOWN_SCHEMES_MAP } from './mfApi';
+import { lookupAmfiByIsin, loadAmfiNavDatabase } from './amfiNavService';
 
 // Set worker source for pdfjs-dist
 try {
@@ -241,19 +242,35 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
   const lowerRaw = rawName.toLowerCase();
   const cleanLower = cleanRaw.toLowerCase();
 
-  // 1. ISIN check first
-  if (isinUpper && KNOWN_ISIN_MAP[isinUpper]) {
-    const known = KNOWN_ISIN_MAP[isinUpper];
-    return {
-      code: known.schemeCode,
-      name: known.schemeName,
-      category: known.category,
-      fundHouse: known.fundHouse,
-      defaultNav: 85.0,
-      planType: known.planType,
-      optionType: known.optionType,
-      isin: isinUpper
-    };
+  // 1. ISIN check in official AMFI NAV Database (Source of Truth)
+  if (isinUpper && isinUpper.length >= 10) {
+    const amfi = lookupAmfiByIsin(isinUpper);
+    if (amfi) {
+      return {
+        code: amfi.schemeCode,
+        name: amfi.schemeName,
+        category: amfi.category,
+        fundHouse: amfi.fundHouse,
+        defaultNav: amfi.currentNav || 85.0,
+        planType: amfi.planType,
+        optionType: amfi.optionType,
+        isin: isinUpper
+      };
+    }
+
+    if (KNOWN_ISIN_MAP[isinUpper]) {
+      const known = KNOWN_ISIN_MAP[isinUpper];
+      return {
+        code: known.schemeCode,
+        name: known.schemeName,
+        category: known.category,
+        fundHouse: known.fundHouse,
+        defaultNav: 85.0,
+        planType: known.planType,
+        optionType: known.optionType,
+        isin: isinUpper
+      };
+    }
   }
 
   // 2. Specific scheme resolution
@@ -530,6 +547,9 @@ export async function parsePdfCasStatement(
   const foliosSet = new Set<string>();
 
   try {
+    // Ensure official AMFI NAV Database is preloaded for ISIN matching
+    await loadAmfiNavDatabase().catch(() => {});
+
     // Allocate a dedicated Uint8Array copy to guarantee it is isolated
     const rawBytes = pdfBuffer instanceof Uint8Array ? pdfBuffer : new Uint8Array(pdfBuffer);
     const dataCopy = new Uint8Array(rawBytes.length);
@@ -688,6 +708,30 @@ export async function parsePdfCasStatement(
       const isinMatch = line.match(/\b(INF[A-Z0-9]{9})\b/i);
       if (isinMatch) {
         currentIsin = isinMatch[1].toUpperCase();
+        // Immediately lookup in official AMFI NAV database
+        const amfi = lookupAmfiByIsin(currentIsin);
+        if (amfi) {
+          currentSchemeName = amfi.schemeName;
+          currentSchemeCode = amfi.schemeCode;
+          currentCategory = amfi.category;
+          currentFundHouse = amfi.fundHouse;
+          currentPlanType = amfi.planType;
+          currentOptionType = amfi.optionType;
+          if (!detectedSchemesMap.has(currentSchemeCode)) {
+            detectedSchemesMap.set(currentSchemeCode, {
+              schemeCode: currentSchemeCode,
+              schemeName: amfi.schemeName,
+              category: amfi.category,
+              fundHouse: amfi.fundHouse,
+              planType: amfi.planType,
+              optionType: amfi.optionType,
+              currentNav: amfi.currentNav || 85.0,
+              navDate: amfi.navDate || new Date().toISOString().split('T')[0],
+              navChange1D: 0,
+              isin: currentIsin
+            });
+          }
+        }
       }
 
       // 4. Detect Scheme Header

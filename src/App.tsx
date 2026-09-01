@@ -20,6 +20,7 @@ import {
 } from './services/portfolioStorage';
 import { syncSchemesForHoldings, SchemeSyncTarget } from './services/mfApi';
 import { computePortfolioHoldings } from './utils/financialCalculations';
+import { loadAmfiNavDatabase } from './services/amfiNavService';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
@@ -37,6 +38,9 @@ export default function App() {
 
   // Load initial data on mount and trigger auto-sync
   useEffect(() => {
+    // Preload official AMFI master database in the background
+    loadAmfiNavDatabase().catch(() => {});
+
     const loadedTxs = loadStoredTransactions();
     const loadedSchemes = loadSchemeCatalog();
     setTransactions(loadedTxs);
@@ -52,7 +56,8 @@ export default function App() {
             schemeName: t.schemeName,
             folioNumber: t.folioNumber,
             planType: t.planType,
-            optionType: t.optionType
+            optionType: t.optionType,
+            isin: loadedSchemes[t.schemeCode]?.isin
           });
         }
       });
