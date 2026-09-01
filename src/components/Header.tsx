@@ -42,7 +42,7 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'overview' as ActiveTab, label: 'Dashboard', icon: TrendingUp },
     { id: 'holdings' as ActiveTab, label: 'Holdings', icon: Layers, badge: summary.holdingsCount },
     { id: 'transactions' as ActiveTab, label: 'Ledger', icon: Receipt, badge: summary.transactionsCount },
-    { id: 'insights' as ActiveTab, label: 'Asset Insights & Overlap', icon: PieChart },
+    { id: 'insights' as ActiveTab, label: 'Asset Insights & Allocation', icon: PieChart },
     { id: 'tax' as ActiveTab, label: 'Capital Gains & Tax', icon: Receipt },
     { id: 'simulator' as ActiveTab, label: 'SIP Compounding', icon: Calculator },
     { id: 'import' as ActiveTab, label: 'CAS Import & Backup', icon: UploadCloud }

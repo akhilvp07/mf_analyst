@@ -1,5 +1,5 @@
 import { TransactionRecord, MutualFundScheme } from '../types';
-import { cleanFundDisplayName, isValidFolioNumber, detectPlanType, detectOptionType } from '../utils/financialCalculations';
+import { cleanFundDisplayName, isValidFolioNumber, normalizeFolioNumber, detectPlanType, detectOptionType } from '../utils/financialCalculations';
 
 const STORAGE_KEYS = {
   TRANSACTIONS: 'mftracker_transactions_v2',

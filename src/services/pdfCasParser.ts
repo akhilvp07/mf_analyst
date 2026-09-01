@@ -1,6 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { TransactionRecord, MutualFundScheme } from '../types';
-import { cleanFundDisplayName, isValidFolioNumber, detectPlanType, detectOptionType } from '../utils/financialCalculations';
+import { cleanFundDisplayName, isValidFolioNumber, normalizeFolioNumber, detectPlanType, detectOptionType } from '../utils/financialCalculations';
 import { KNOWN_ISIN_MAP, KNOWN_SCHEMES_MAP } from './mfApi';
 import { lookupAmfiByIsin, loadAmfiNavDatabase } from './amfiNavService';
 

@@ -90,25 +90,28 @@ export interface AssetAllocation {
   cash: number;
 }
 
-export interface MarketCapAllocation {
-  largeCap: number;
-  midCap: number;
-  smallCap: number;
+export interface CategoryAllocation {
+  category: string;
+  value: number;
+  percentage: number;
+  schemesCount: number;
 }
 
-export interface SectorExposure {
-  sector: string;
-  percentage: number;
+export interface AmcAllocation {
+  fundHouse: string;
   value: number;
+  percentage: number;
+  schemesCount: number;
 }
 
-export interface StockHoldingExposure {
-  stockName: string;
-  ticker: string;
-  sector: string;
-  percentage: number;
-  value: number;
-  fundsHolding: string[];
+export interface PortfolioConcentration {
+  topHoldingWeight: number;
+  top3HoldingsWeight: number;
+  directPlanPercentage: number;
+  regularPlanPercentage: number;
+  growthOptionPercentage: number;
+  idcwOptionPercentage: number;
+  hhiScore: number;
 }
 
 export interface TaxComputation {

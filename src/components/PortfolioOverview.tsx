@@ -16,8 +16,8 @@ import {
   ChevronRight,
   ExternalLink
 } from 'lucide-react';
-import { PortfolioHolding, PortfolioSummary, AssetAllocation, MarketCapAllocation, TransactionRecord } from '../types';
-import { formatINR, computeAssetAllocation, computeMarketCapAllocation } from '../utils/financialCalculations';
+import { PortfolioHolding, PortfolioSummary, AssetAllocation, TransactionRecord } from '../types';
+import { formatINR, computeAssetAllocation, computeCategoryAllocation } from '../utils/financialCalculations';
 import { PortfolioGrowthChart } from './PortfolioGrowthChart';
 
 interface PortfolioOverviewProps {
@@ -36,7 +36,7 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
   onOpenImport
 }) => {
   const assetAllocation = computeAssetAllocation(holdings);
-  const marketCapAllocation = computeMarketCapAllocation(holdings);
+  const categoryAllocations = computeCategoryAllocation(holdings).slice(0, 4);
 
   const isDayPositive = summary.dayGain >= 0;
   const isTotalPositive = summary.totalGain >= 0;
@@ -243,7 +243,7 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
                 onClick={() => onNavigateTab('insights')}
                 className="text-xs font-medium text-neutral-400 hover:text-white flex items-center gap-1 cursor-pointer"
               >
-                Overlap <ChevronRight className="w-3 h-3" />
+                Insights <ChevronRight className="w-3 h-3" />
               </button>
             </div>
 
@@ -252,7 +252,8 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
               <div style={{ width: `${assetAllocation.equity}%` }} className="bg-emerald-500 h-full" title={`Equity: ${assetAllocation.equity.toFixed(1)}%`} />
               <div style={{ width: `${assetAllocation.debt}%` }} className="bg-blue-500 h-full" title={`Debt: ${assetAllocation.debt.toFixed(1)}%`} />
               <div style={{ width: `${assetAllocation.hybrid}%` }} className="bg-purple-500 h-full" title={`Hybrid: ${assetAllocation.hybrid.toFixed(1)}%`} />
-              <div style={{ width: `${assetAllocation.cash}%` }} className="bg-amber-500 h-full" title={`Cash: ${assetAllocation.cash.toFixed(1)}%`} />
+              <div style={{ width: `${assetAllocation.gold}%` }} className="bg-amber-400 h-full" title={`Gold / Commodities: ${assetAllocation.gold.toFixed(1)}%`} />
+              <div style={{ width: `${assetAllocation.cash}%` }} className="bg-cyan-500 h-full" title={`Liquid / Cash: ${assetAllocation.cash.toFixed(1)}%`} />
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-xs">
@@ -271,39 +272,32 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
             </div>
           </div>
 
-          {/* Market Cap Breakdown */}
+          {/* Scheme Category Distribution */}
           <div className="border-t border-neutral-800 pt-4">
             <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider mb-2.5">
-              Equity Market Cap Exposure
+              Top Category Exposures
             </h4>
             <div className="space-y-2 text-xs">
-              <div>
-                <div className="flex justify-between text-neutral-400 mb-1">
-                  <span>Large Cap</span>
-                  <span className="font-semibold text-neutral-200">{marketCapAllocation.largeCap.toFixed(1)}%</span>
-                </div>
-                <div className="w-full h-1.5 rounded-full bg-neutral-800 overflow-hidden">
-                  <div className="bg-teal-500 h-full rounded-full" style={{ width: `${marketCapAllocation.largeCap}%` }}></div>
-                </div>
-              </div>
-              <div>
-                <div className="flex justify-between text-neutral-400 mb-1">
-                  <span>Mid Cap</span>
-                  <span className="font-semibold text-neutral-200">{marketCapAllocation.midCap.toFixed(1)}%</span>
-                </div>
-                <div className="w-full h-1.5 rounded-full bg-neutral-800 overflow-hidden">
-                  <div className="bg-indigo-500 h-full rounded-full" style={{ width: `${marketCapAllocation.midCap}%` }}></div>
-                </div>
-              </div>
-              <div>
-                <div className="flex justify-between text-neutral-400 mb-1">
-                  <span>Small Cap</span>
-                  <span className="font-semibold text-neutral-200">{marketCapAllocation.smallCap.toFixed(1)}%</span>
-                </div>
-                <div className="w-full h-1.5 rounded-full bg-neutral-800 overflow-hidden">
-                  <div className="bg-amber-500 h-full rounded-full" style={{ width: `${marketCapAllocation.smallCap}%` }}></div>
-                </div>
-              </div>
+              {categoryAllocations.length > 0 ? (
+                categoryAllocations.map((cat, idx) => (
+                  <div key={idx}>
+                    <div className="flex justify-between text-neutral-400 mb-1">
+                      <span className="truncate max-w-[140px]" title={cat.category}>{cat.category}</span>
+                      <span className="font-semibold text-neutral-200">{cat.percentage.toFixed(1)}%</span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-neutral-800 overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full ${
+                          idx === 0 ? 'bg-emerald-500' : idx === 1 ? 'bg-teal-500' : idx === 2 ? 'bg-indigo-500' : 'bg-amber-500'
+                        }`} 
+                        style={{ width: `${Math.min(cat.percentage, 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-neutral-500 text-xs py-2">No holdings recorded yet</div>
+              )}
             </div>
           </div>
 

@@ -4,9 +4,9 @@ import {
   PortfolioSummary,
   MutualFundScheme,
   AssetAllocation,
-  MarketCapAllocation,
-  SectorExposure,
-  StockHoldingExposure,
+  CategoryAllocation,
+  AmcAllocation,
+  PortfolioConcentration,
   TaxComputation
 } from '../types';
 
@@ -194,6 +194,74 @@ export function calculateXirr(
   }
 
   return ((low + high) / 2) * 100;
+}
+
+/**
+ * Extract AMC (Fund House) name from a mutual fund scheme name
+ */
+export function extractAmcName(schemeName: string): string {
+  if (!schemeName) return 'Mutual Fund';
+  const clean = schemeName.trim();
+  const amcList = [
+    { match: /parag\s*parikh|ppfas/i, name: 'PPFAS Mutual Fund' },
+    { match: /hdfc/i, name: 'HDFC Mutual Fund' },
+    { match: /icici\s*pru/i, name: 'ICICI Prudential Mutual Fund' },
+    { match: /sbi\b/i, name: 'SBI Mutual Fund' },
+    { match: /nippon/i, name: 'Nippon India Mutual Fund' },
+    { match: /axis/i, name: 'Axis Mutual Fund' },
+    { match: /kotak/i, name: 'Kotak Mahindra Mutual Fund' },
+    { match: /mirae/i, name: 'Mirae Asset Mutual Fund' },
+    { match: /quant\b/i, name: 'Quant Mutual Fund' },
+    { match: /uti\b/i, name: 'UTI Mutual Fund' },
+    { match: /motilal\s*oswal/i, name: 'Motilal Oswal Mutual Fund' },
+    { match: /tata\b/i, name: 'Tata Mutual Fund' },
+    { match: /dsp\b/i, name: 'DSP Mutual Fund' },
+    { match: /aditya\s*birla|birla\s*sun/i, name: 'Aditya Birla Sun Life Mutual Fund' },
+    { match: /franklin\s*templeton/i, name: 'Franklin Templeton Mutual Fund' },
+    { match: /bandhan|idfc/i, name: 'Bandhan Mutual Fund' },
+    { match: /zerodha/i, name: 'Zerodha Mutual Fund' },
+    { match: /groww/i, name: 'Groww Mutual Fund' },
+    { match: /navi\b/i, name: 'Navi Mutual Fund' },
+    { match: /edelweiss/i, name: 'Edelweiss Mutual Fund' },
+    { match: /hsbc/i, name: 'HSBC Mutual Fund' },
+    { match: /canara\s*robeco/i, name: 'Canara Robeco Mutual Fund' },
+    { match: /invesco/i, name: 'Invesco Mutual Fund' },
+    { match: /baroda\s*bnp|bnp\s*paribas/i, name: 'Baroda BNP Paribas Mutual Fund' },
+    { match: /sundaram/i, name: 'Sundaram Mutual Fund' }
+  ];
+
+  for (const item of amcList) {
+    if (item.match.test(clean)) return item.name;
+  }
+
+  const words = clean.split(/\s+/);
+  return words.slice(0, 2).join(' ') + ' Mutual Fund';
+}
+
+/**
+ * Detect SEBI Category from scheme name
+ */
+export function detectFundCategory(schemeName: string): string {
+  if (!schemeName) return 'Equity - Others';
+  const text = schemeName.toLowerCase();
+
+  if (text.includes('flexi cap') || text.includes('flexicap')) return 'Equity - Flexi Cap';
+  if (text.includes('large & mid') || text.includes('large and mid')) return 'Equity - Large & Mid Cap';
+  if (text.includes('large cap') || text.includes('bluechip') || text.includes('top 100')) return 'Equity - Large Cap';
+  if (text.includes('mid cap') || text.includes('midcap') || text.includes('emerging')) return 'Equity - Mid Cap';
+  if (text.includes('small cap') || text.includes('smallcap')) return 'Equity - Small Cap';
+  if (text.includes('multi cap') || text.includes('multicap')) return 'Equity - Multi Cap';
+  if (text.includes('elss') || text.includes('tax saver') || text.includes('long term equity')) return 'Equity - ELSS';
+  if (text.includes('nifty 50') || text.includes('sensex') || text.includes('nifty next 50') || text.includes('index fund')) return 'Other - Index Fund';
+  if (text.includes('nasdaq') || text.includes('fof') || text.includes('fund of fund') || text.includes('international') || text.includes('global') || text.includes('us equity')) return 'Other - International FoF';
+  if (text.includes('liquid') || text.includes('overnight') || text.includes('money market')) return 'Debt - Liquid / Cash';
+  if (text.includes('gilt') || text.includes('corporate bond') || text.includes('banking & psu') || text.includes('duration') || text.includes('debt')) return 'Debt - Fixed Income';
+  if (text.includes('arbitrage')) return 'Hybrid - Arbitrage';
+  if (text.includes('balanced advantage') || text.includes('dynamic asset')) return 'Hybrid - Balanced Advantage';
+  if (text.includes('aggressive hybrid') || text.includes('balanced hybrid') || text.includes('multi asset') || text.includes('equity savings')) return 'Hybrid - Multi Asset';
+  if (text.includes('gold') || text.includes('silver') || text.includes('commodity')) return 'Commodities - Gold/Silver';
+
+  return 'Equity - Others';
 }
 
 /**
@@ -703,11 +771,12 @@ export function computePortfolioHoldings(
 }
 
 /**
- * Breakdown Asset Classes
+ * Genuine Asset Class Breakdown
+ * Derived 100% dynamically from actual scheme categories without artificial multipliers or synthetic drag.
  */
 export function computeAssetAllocation(holdings: PortfolioHolding[]): AssetAllocation {
   const total = holdings.reduce((sum, h) => sum + h.currentValue, 0);
-  if (total <= 0) return { equity: 100, debt: 0, hybrid: 0, gold: 0, cash: 0 };
+  if (total <= 0) return { equity: 0, debt: 0, hybrid: 0, gold: 0, cash: 0 };
 
   let equity = 0;
   let debt = 0;
@@ -716,22 +785,20 @@ export function computeAssetAllocation(holdings: PortfolioHolding[]): AssetAlloc
   let cash = 0;
 
   holdings.forEach(h => {
-    const cat = h.category.toLowerCase();
-    if (cat.includes('small cap') || cat.includes('mid cap') || cat.includes('large cap') || cat.includes('flexi cap') || cat.includes('elss')) {
-      equity += h.currentValue * 0.96;
-      cash += h.currentValue * 0.04;
-    } else if (cat.includes('debt') || cat.includes('liquid') || cat.includes('duration')) {
-      debt += h.currentValue * 0.95;
-      cash += h.currentValue * 0.05;
-    } else if (cat.includes('hybrid') || cat.includes('balanced')) {
-      equity += h.currentValue * 0.65;
-      debt += h.currentValue * 0.30;
-      cash += h.currentValue * 0.05;
-    } else if (cat.includes('gold') || cat.includes('commodity')) {
+    const cat = (h.category || '').toLowerCase();
+    const name = (h.schemeName || '').toLowerCase();
+
+    if (cat.includes('liquid') || cat.includes('overnight') || cat.includes('money market')) {
+      cash += h.currentValue;
+    } else if (cat.includes('debt') || cat.includes('gilt') || cat.includes('duration') || cat.includes('bond') || cat.includes('banking & psu')) {
+      debt += h.currentValue;
+    } else if (cat.includes('hybrid') || cat.includes('balanced') || cat.includes('multi asset') || cat.includes('arbitrage') || cat.includes('equity savings')) {
+      hybrid += h.currentValue;
+    } else if (cat.includes('gold') || cat.includes('silver') || cat.includes('commodity') || name.includes('gold') || name.includes('silver')) {
       gold += h.currentValue;
     } else {
-      equity += h.currentValue * 0.90;
-      cash += h.currentValue * 0.10;
+      // Equity schemes (Large, Mid, Small, Flexi, ELSS, Thematic, Sectoral, Index)
+      equity += h.currentValue;
     }
   });
 
@@ -745,270 +812,135 @@ export function computeAssetAllocation(holdings: PortfolioHolding[]): AssetAlloc
 }
 
 /**
- * Market Cap Allocation (Large, Mid, Small)
+ * Genuine SEBI Category Allocation
+ * Computed dynamically by grouping holdings into exact SEBI categories.
  */
-export function computeMarketCapAllocation(holdings: PortfolioHolding[]): MarketCapAllocation {
+export function computeCategoryAllocation(holdings: PortfolioHolding[]): CategoryAllocation[] {
   const total = holdings.reduce((sum, h) => sum + h.currentValue, 0);
-  if (total <= 0) return { largeCap: 60, midCap: 25, smallCap: 15 };
+  if (total <= 0) return [];
 
-  let large = 0;
-  let mid = 0;
-  let small = 0;
+  const categoryMap = new Map<string, { value: number; count: number }>();
 
   holdings.forEach(h => {
-    const cat = h.category.toLowerCase();
-    if (cat.includes('large cap') || cat.includes('index') || cat.includes('bluechip') || cat.includes('top 100')) {
-      large += h.currentValue * 0.88;
-      mid += h.currentValue * 0.10;
-      small += h.currentValue * 0.02;
-    } else if (cat.includes('mid cap') || cat.includes('emerging')) {
-      large += h.currentValue * 0.15;
-      mid += h.currentValue * 0.75;
-      small += h.currentValue * 0.10;
-    } else if (cat.includes('small cap')) {
-      large += h.currentValue * 0.05;
-      mid += h.currentValue * 0.20;
-      small += h.currentValue * 0.75;
-    } else if (cat.includes('flexi cap') || cat.includes('multi cap')) {
-      large += h.currentValue * 0.65;
-      mid += h.currentValue * 0.22;
-      small += h.currentValue * 0.13;
-    } else {
-      large += h.currentValue * 0.60;
-      mid += h.currentValue * 0.25;
-      small += h.currentValue * 0.15;
+    let cat = (h.category || 'Equity - Others').trim();
+    if (!cat || cat === 'Other' || cat === 'Equity') {
+      cat = detectFundCategory(h.schemeName);
     }
+    const curr = categoryMap.get(cat) || { value: 0, count: 0 };
+    curr.value += h.currentValue;
+    curr.count += 1;
+    categoryMap.set(cat, curr);
   });
 
-  const equityTotal = large + mid + small;
-  if (equityTotal <= 0) return { largeCap: 60, midCap: 25, smallCap: 15 };
-
-  return {
-    largeCap: (large / equityTotal) * 100,
-    midCap: (mid / equityTotal) * 100,
-    smallCap: (small / equityTotal) * 100
-  };
-}
-
-/**
- * Stock Holding Overlap Aggregator
- * Known stock exposures for common top direct Indian mutual funds
- */
-export const SCHEME_STOCK_PORTFOLIOS: Record<string, { stock: string; ticker: string; sector: string; weight: number }[]> = {
-  '122639': [ // Parag Parikh Flexi Cap
-    { stock: 'HDFC Bank Ltd', ticker: 'HDFCBANK', sector: 'Financial Services', weight: 8.2 },
-    { stock: 'Bajaj Holdings & Inv Ltd', ticker: 'BAJAJHLDNG', sector: 'Financial Services', weight: 7.4 },
-    { stock: 'ITC Ltd', ticker: 'ITC', sector: 'FMCG', weight: 6.9 },
-    { stock: 'ICICI Bank Ltd', ticker: 'ICICIBANK', sector: 'Financial Services', weight: 6.5 },
-    { stock: 'Power Grid Corp', ticker: 'POWERGRID', sector: 'Utilities', weight: 5.8 },
-    { stock: 'Coal India Ltd', ticker: 'COALINDIA', sector: 'Energy & Mining', weight: 5.1 },
-    { stock: 'Alphabet Inc (Google)', ticker: 'GOOGL', sector: 'Technology', weight: 4.8 },
-    { stock: 'Microsoft Corp', ticker: 'MSFT', sector: 'Technology', weight: 4.2 },
-    { stock: 'HCL Technologies', ticker: 'HCLTECH', sector: 'Technology', weight: 3.9 },
-    { stock: 'Maruti Suzuki India', ticker: 'MARUTI', sector: 'Automobile', weight: 3.6 }
-  ],
-  '119063': [ // HDFC Top 100
-    { stock: 'HDFC Bank Ltd', ticker: 'HDFCBANK', sector: 'Financial Services', weight: 9.8 },
-    { stock: 'ICICI Bank Ltd', ticker: 'ICICIBANK', sector: 'Financial Services', weight: 8.6 },
-    { stock: 'Reliance Industries Ltd', ticker: 'RELIANCE', sector: 'Energy', weight: 8.1 },
-    { stock: 'Infosys Ltd', ticker: 'INFY', sector: 'Technology', weight: 6.5 },
-    { stock: 'Larsen & Toubro Ltd', ticker: 'LT', sector: 'Capital Goods', weight: 5.4 },
-    { stock: 'Tata Consultancy Services', ticker: 'TCS', sector: 'Technology', weight: 4.9 },
-    { stock: 'Axis Bank Ltd', ticker: 'AXISBANK', sector: 'Financial Services', weight: 4.2 },
-    { stock: 'Bharti Airtel Ltd', ticker: 'BHARTIARTL', sector: 'Telecommunication', weight: 3.8 },
-    { stock: 'State Bank of India', ticker: 'SBIN', sector: 'Financial Services', weight: 3.5 },
-    { stock: 'ITC Ltd', ticker: 'ITC', sector: 'FMCG', weight: 3.2 }
-  ],
-  '120503': [ // Axis ELSS - Tax Saver Fund (Direct Plan)
-    { stock: 'Axis Bank Ltd', ticker: 'AXISBANK', sector: 'Financial Services', weight: 8.5 },
-    { stock: 'ICICI Bank Ltd', ticker: 'ICICIBANK', sector: 'Financial Services', weight: 7.8 },
-    { stock: 'Avenue Supermarts Ltd (DMart)', ticker: 'DMART', sector: 'Consumer Services', weight: 6.9 },
-    { stock: 'Bajaj Finance Ltd', ticker: 'BAJFINANCE', sector: 'Financial Services', weight: 6.2 },
-    { stock: 'Tata Consultancy Services', ticker: 'TCS', sector: 'Technology', weight: 5.6 },
-    { stock: 'HDFC Bank Ltd', ticker: 'HDFCBANK', sector: 'Financial Services', weight: 5.1 },
-    { stock: 'Infosys Ltd', ticker: 'INFY', sector: 'Technology', weight: 4.5 },
-    { stock: 'Nestle India Ltd', ticker: 'NESTLEIND', sector: 'FMCG', weight: 4.1 },
-    { stock: 'Pidilite Industries Ltd', ticker: 'PIDILITIND', sector: 'Chemicals', weight: 3.8 },
-    { stock: 'Torrent Power Ltd', ticker: 'TORNTPOWER', sector: 'Utilities', weight: 3.4 }
-  ],
-  '120828': [ // Quant Small Cap Fund
-    { stock: 'Reliance Industries Ltd', ticker: 'RELIANCE', sector: 'Energy', weight: 7.2 },
-    { stock: 'Jio Financial Services', ticker: 'JIOFIN', sector: 'Financial Services', weight: 5.4 },
-    { stock: 'Bikaji Foods International', ticker: 'BIKAJI', sector: 'FMCG', weight: 4.8 },
-    { stock: 'Aegis Logistics Ltd', ticker: 'AEGISCHEM', sector: 'Energy', weight: 4.3 },
-    { stock: 'Adani Power Ltd', ticker: 'ADANIPOWER', sector: 'Utilities', weight: 3.9 },
-    { stock: 'HFCL Ltd', ticker: 'HFCL', sector: 'Telecommunication', weight: 3.6 },
-    { stock: 'IRB Infrastructure', ticker: 'IRB', sector: 'Infrastructure', weight: 3.4 },
-    { stock: 'Arvind Ltd', ticker: 'ARVIND', sector: 'Textiles', weight: 3.1 },
-    { stock: 'Steel Authority of India', ticker: 'SAIL', sector: 'Metals', weight: 2.8 },
-    { stock: 'Hindustan Copper Ltd', ticker: 'HINDCOPPER', sector: 'Metals', weight: 2.5 }
-  ],
-  '118834': [ // Mirae Asset Large Cap
-    { stock: 'HDFC Bank Ltd', ticker: 'HDFCBANK', sector: 'Financial Services', weight: 9.4 },
-    { stock: 'ICICI Bank Ltd', ticker: 'ICICIBANK', sector: 'Financial Services', weight: 8.2 },
-    { stock: 'Reliance Industries Ltd', ticker: 'RELIANCE', sector: 'Energy', weight: 7.9 },
-    { stock: 'Infosys Ltd', ticker: 'INFY', sector: 'Technology', weight: 6.2 },
-    { stock: 'Tata Consultancy Services', ticker: 'TCS', sector: 'Technology', weight: 4.8 },
-    { stock: 'Larsen & Toubro Ltd', ticker: 'LT', sector: 'Capital Goods', weight: 4.5 },
-    { stock: 'Bharti Airtel Ltd', ticker: 'BHARTIARTL', sector: 'Telecommunication', weight: 4.1 },
-    { stock: 'Axis Bank Ltd', ticker: 'AXISBANK', sector: 'Financial Services', weight: 3.9 },
-    { stock: 'State Bank of India', ticker: 'SBIN', sector: 'Financial Services', weight: 3.4 },
-    { stock: 'Sun Pharmaceutical', ticker: 'SUNPHARMA', sector: 'Healthcare', weight: 2.9 }
-  ],
-  '125497': [ // Nippon India Small Cap
-    { stock: 'Tube Investments of India', ticker: 'TIINDIA', sector: 'Automobile', weight: 3.4 },
-    { stock: 'HDFC Bank Ltd', ticker: 'HDFCBANK', sector: 'Financial Services', weight: 2.8 },
-    { stock: 'Apar Industries Ltd', ticker: 'APARINDS', sector: 'Capital Goods', weight: 2.6 },
-    { stock: 'Multi Commodity Exchange', ticker: 'MCX', sector: 'Financial Services', weight: 2.3 },
-    { stock: 'KPIT Technologies Ltd', ticker: 'KPITTECH', sector: 'Technology', weight: 2.1 },
-    { stock: 'Voltamp Transformers', ticker: 'VOLTAMP', sector: 'Capital Goods', weight: 1.9 },
-    { stock: 'Birlasoft Ltd', ticker: 'BSOFT', sector: 'Technology', weight: 1.8 },
-    { stock: 'Carborundum Universal', ticker: 'CARBORUNIV', sector: 'Capital Goods', weight: 1.7 },
-    { stock: 'Power Mech Projects', ticker: 'POWERMECH', sector: 'Infrastructure', weight: 1.6 },
-    { stock: 'Kirloskar Oil Engines', ticker: 'KIRLOSENG', sector: 'Capital Goods', weight: 1.5 }
-  ],
-  '119551': [ // SBI Bluechip
-    { stock: 'HDFC Bank Ltd', ticker: 'HDFCBANK', sector: 'Financial Services', weight: 9.1 },
-    { stock: 'ICICI Bank Ltd', ticker: 'ICICIBANK', sector: 'Financial Services', weight: 8.5 },
-    { stock: 'Reliance Industries Ltd', ticker: 'RELIANCE', sector: 'Energy', weight: 7.6 },
-    { stock: 'Infosys Ltd', ticker: 'INFY', sector: 'Technology', weight: 5.9 },
-    { stock: 'Larsen & Toubro Ltd', ticker: 'LT', sector: 'Capital Goods', weight: 5.1 },
-    { stock: 'ITC Ltd', ticker: 'ITC', sector: 'FMCG', weight: 4.4 },
-    { stock: 'Bharti Airtel Ltd', ticker: 'BHARTIARTL', sector: 'Telecommunication', weight: 3.9 },
-    { stock: 'Tata Motors Ltd', ticker: 'TATAMOTORS', sector: 'Automobile', weight: 3.5 },
-    { stock: 'Mahindra & Mahindra', ticker: 'M&M', sector: 'Automobile', weight: 3.1 },
-    { stock: 'Titan Company Ltd', ticker: 'TITAN', sector: 'Consumer Discretionary', weight: 2.8 }
-  ],
-  '120152': [ // Kotak Emerging Equity
-    { stock: 'Supreme Industries Ltd', ticker: 'SUPREMEIND', sector: 'Industrial Products', weight: 4.2 },
-    { stock: 'Cummins India Ltd', ticker: 'CUMMINSIND', sector: 'Capital Goods', weight: 3.9 },
-    { stock: 'Schaeffler India Ltd', ticker: 'SCHAEFFLER', sector: 'Automobile', weight: 3.5 },
-    { stock: 'Solar Industries India', ticker: 'SOLARINDS', sector: 'Chemicals', weight: 3.2 },
-    { stock: 'Persistent Systems Ltd', ticker: 'PERSISTENT', sector: 'Technology', weight: 3.0 },
-    { stock: 'Thermax Ltd', ticker: 'THERMAX', sector: 'Capital Goods', weight: 2.8 },
-    { stock: 'Bharat Forge Ltd', ticker: 'BHARATFORG', sector: 'Automobile', weight: 2.6 },
-    { stock: 'Max Financial Services', ticker: 'MFSL', sector: 'Financial Services', weight: 2.5 },
-    { stock: 'Balkrishna Industries', ticker: 'BALKRISIND', sector: 'Automobile', weight: 2.3 },
-    { stock: 'Coforge Ltd', ticker: 'COFORGE', sector: 'Technology', weight: 2.1 }
-  ]
-};
-
-/**
- * Aggregates top underlying stock exposures across all portfolio holdings
- */
-export function computeUnderlyingStockExposure(holdings: PortfolioHolding[]): StockHoldingExposure[] {
-  const stockMap = new Map<string, {
-    stockName: string;
-    ticker: string;
-    sector: string;
-    value: number;
-    fundsHolding: Set<string>;
-  }>();
-
-  const totalPortfolioValue = holdings.reduce((sum, h) => sum + h.currentValue, 0);
-  if (totalPortfolioValue <= 0) return [];
-
-  holdings.forEach(holding => {
-    const holdingsList = SCHEME_STOCK_PORTFOLIOS[holding.schemeCode] || [
-      { stock: 'HDFC Bank Ltd', ticker: 'HDFCBANK', sector: 'Financial Services', weight: 7.5 },
-      { stock: 'ICICI Bank Ltd', ticker: 'ICICIBANK', sector: 'Financial Services', weight: 6.5 },
-      { stock: 'Reliance Industries Ltd', ticker: 'RELIANCE', sector: 'Energy', weight: 6.0 },
-      { stock: 'Infosys Ltd', ticker: 'INFY', sector: 'Technology', weight: 5.0 },
-      { stock: 'Larsen & Toubro Ltd', ticker: 'LT', sector: 'Capital Goods', weight: 4.0 }
-    ];
-
-    holdingsList.forEach(stockItem => {
-      const stockEffectiveValue = holding.currentValue * (stockItem.weight / 100);
-      if (!stockMap.has(stockItem.ticker)) {
-        stockMap.set(stockItem.ticker, {
-          stockName: stockItem.stock,
-          ticker: stockItem.ticker,
-          sector: stockItem.sector,
-          value: 0,
-          fundsHolding: new Set<string>()
-        });
-      }
-      const entry = stockMap.get(stockItem.ticker)!;
-      entry.value += stockEffectiveValue;
-      entry.fundsHolding.add(holding.schemeName.split('-')[0].trim());
+  const list: CategoryAllocation[] = [];
+  categoryMap.forEach((entry, category) => {
+    list.push({
+      category,
+      value: entry.value,
+      percentage: total > 0 ? (entry.value / total) * 100 : 0,
+      schemesCount: entry.count
     });
   });
 
-  const result: StockHoldingExposure[] = [];
-  stockMap.forEach(item => {
-    result.push({
-      stockName: item.stockName,
-      ticker: item.ticker,
-      sector: item.sector,
-      value: item.value,
-      percentage: (item.value / totalPortfolioValue) * 100,
-      fundsHolding: Array.from(item.fundsHolding)
-    });
-  });
-
-  result.sort((a, b) => b.value - a.value);
-  return result;
+  return list.sort((a, b) => b.value - a.value);
 }
 
 /**
- * Sector exposure aggregation
+ * Genuine AMC (Fund House) Distribution
+ * Computed dynamically from actual holding fund houses.
  */
-export function computeSectorExposure(holdings: PortfolioHolding[]): SectorExposure[] {
-  const stockExposures = computeUnderlyingStockExposure(holdings);
-  const sectorMap = new Map<string, number>();
-  const totalPortfolioValue = holdings.reduce((sum, h) => sum + h.currentValue, 0);
+export function computeAmcDistribution(holdings: PortfolioHolding[]): AmcAllocation[] {
+  const total = holdings.reduce((sum, h) => sum + h.currentValue, 0);
+  if (total <= 0) return [];
 
-  stockExposures.forEach(s => {
-    const curr = sectorMap.get(s.sector) || 0;
-    sectorMap.set(s.sector, curr + s.value);
+  const amcMap = new Map<string, { value: number; count: number }>();
+
+  holdings.forEach(h => {
+    let fundHouse = (h.fundHouse || '').trim();
+    if (!fundHouse || fundHouse === 'Unknown AMC' || fundHouse === 'Mutual Fund') {
+      fundHouse = extractAmcName(h.schemeName);
+    }
+    const curr = amcMap.get(fundHouse) || { value: 0, count: 0 };
+    curr.value += h.currentValue;
+    curr.count += 1;
+    amcMap.set(fundHouse, curr);
   });
 
-  const sectors: SectorExposure[] = [];
-  sectorMap.forEach((val, key) => {
-    sectors.push({
-      sector: key,
-      value: val,
-      percentage: totalPortfolioValue > 0 ? (val / totalPortfolioValue) * 100 : 0
+  const list: AmcAllocation[] = [];
+  amcMap.forEach((entry, fundHouse) => {
+    list.push({
+      fundHouse,
+      value: entry.value,
+      percentage: total > 0 ? (entry.value / total) * 100 : 0,
+      schemesCount: entry.count
     });
   });
 
-  sectors.sort((a, b) => b.value - a.value);
-  return sectors;
+  return list.sort((a, b) => b.value - a.value);
 }
 
 /**
- * Calculate Pairwise Portfolio Fund Overlap percentage between 2 funds
+ * Genuine Portfolio Concentration & Structural Health Metrics
+ * Purely mathematical calculations on actual portfolio holdings:
+ * - Top holding allocation %
+ * - Top 3 holdings allocation %
+ * - Direct vs Regular plan split
+ * - Growth vs IDCW option split
+ * - Herfindahl-Hirschman Index (HHI = sum of squared weight percentages)
  */
-export function calculateFundOverlap(schemeCodeA: string, schemeCodeB: string): { overlapPercentage: number; commonStocks: { stock: string; weightA: number; weightB: number; commonWeight: number }[] } {
-  const listA = SCHEME_STOCK_PORTFOLIOS[schemeCodeA] || [];
-  const listB = SCHEME_STOCK_PORTFOLIOS[schemeCodeB] || [];
-
-  if (listA.length === 0 || listB.length === 0) {
-    return { overlapPercentage: 0, commonStocks: [] };
+export function computePortfolioConcentration(holdings: PortfolioHolding[]): PortfolioConcentration {
+  const total = holdings.reduce((sum, h) => sum + h.currentValue, 0);
+  if (total <= 0 || holdings.length === 0) {
+    return {
+      topHoldingWeight: 0,
+      top3HoldingsWeight: 0,
+      directPlanPercentage: 0,
+      regularPlanPercentage: 0,
+      growthOptionPercentage: 0,
+      idcwOptionPercentage: 0,
+      hhiScore: 0
+    };
   }
 
-  const mapB = new Map(listB.map(item => [item.ticker, item]));
-  const commonStocks: { stock: string; weightA: number; weightB: number; commonWeight: number }[] = [];
-  let totalOverlap = 0;
+  const sorted = [...holdings].sort((a, b) => b.currentValue - a.currentValue);
+  const top1Value = sorted[0]?.currentValue || 0;
+  const top3Value = sorted.slice(0, 3).reduce((sum, h) => sum + h.currentValue, 0);
 
-  listA.forEach(itemA => {
-    const itemB = mapB.get(itemA.ticker);
-    if (itemB) {
-      const minWeight = Math.min(itemA.weight, itemB.weight);
-      totalOverlap += minWeight;
-      commonStocks.push({
-        stock: itemA.stock,
-        weightA: itemA.weight,
-        weightB: itemB.weight,
-        commonWeight: minWeight
-      });
+  let directVal = 0;
+  let regularVal = 0;
+  let growthVal = 0;
+  let idcwVal = 0;
+  let hhi = 0;
+
+  holdings.forEach(h => {
+    const weightPct = (h.currentValue / total) * 100;
+    hhi += weightPct * weightPct;
+
+    const plan = (h.planType || '').toLowerCase();
+    const option = (h.optionType || '').toLowerCase();
+    const name = (h.schemeName || '').toLowerCase();
+
+    if (plan === 'direct' || name.includes('direct')) {
+      directVal += h.currentValue;
+    } else {
+      regularVal += h.currentValue;
+    }
+
+    if (option === 'growth' || name.includes('growth')) {
+      growthVal += h.currentValue;
+    } else {
+      idcwVal += h.currentValue;
     }
   });
 
-  commonStocks.sort((a, b) => b.commonWeight - a.commonWeight);
   return {
-    overlapPercentage: Math.round(totalOverlap * 10) / 10,
-    commonStocks
+    topHoldingWeight: (top1Value / total) * 100,
+    top3HoldingsWeight: (top3Value / total) * 100,
+    directPlanPercentage: (directVal / total) * 100,
+    regularPlanPercentage: (regularVal / total) * 100,
+    growthOptionPercentage: (growthVal / total) * 100,
+    idcwOptionPercentage: (idcwVal / total) * 100,
+    hhiScore: Math.round(hhi)
   };
 }
 
