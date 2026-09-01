@@ -6,8 +6,7 @@ import {
   Layers, 
   PieChart, 
   Receipt, 
-  Calculator, 
-  Plus
+  Calculator
 } from 'lucide-react';
 import { formatINR } from '../utils/financialCalculations';
 import { PortfolioSummary } from '../types';
@@ -27,7 +26,6 @@ interface HeaderProps {
   summary: PortfolioSummary;
   isSyncingNavs: boolean;
   onSyncNavs: () => void;
-  onOpenAddModal: () => void;
   onOpenImport: () => void;
 }
 
@@ -36,8 +34,7 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveTab,
   summary,
   isSyncingNavs,
-  onSyncNavs,
-  onOpenAddModal
+  onSyncNavs
 }) => {
   const isPositiveDay = summary.dayGain >= 0;
 
@@ -101,26 +98,17 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Action Buttons */}
+          {/* Sync Button */}
           <div className="flex items-center gap-2 shrink-0">
             <button
               id="sync-nav-btn"
               onClick={onSyncNavs}
               disabled={isSyncingNavs}
               title="Sync live NAVs from AMFI"
-              className="px-3 py-2 text-xs font-medium rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 hover:text-white transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow-sm shadow-emerald-900/30 cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingNavs ? 'animate-spin text-emerald-400' : ''}`} />
-              <span className="hidden sm:inline">{isSyncingNavs ? 'Syncing...' : 'Sync NAVs'}</span>
-            </button>
-
-            <button
-              id="add-tx-btn"
-              onClick={onOpenAddModal}
-              className="px-3.5 py-2 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow-sm shadow-emerald-900/30 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Fund / SIP</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingNavs ? 'animate-spin' : ''}`} />
+              <span>{isSyncingNavs ? 'Syncing...' : 'Sync NAVs'}</span>
             </button>
           </div>
         </div>

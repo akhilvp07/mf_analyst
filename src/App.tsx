@@ -7,7 +7,6 @@ import { PortfolioInsights } from './components/PortfolioInsights';
 import { TaxCalculator } from './components/TaxCalculator';
 import { SipSimulator } from './components/SipSimulator';
 import { CasImporter } from './components/CasImporter';
-import { AddTransactionModal } from './components/AddTransactionModal';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 
 import { TransactionRecord, MutualFundScheme } from './types';
@@ -15,7 +14,6 @@ import {
   loadStoredTransactions, 
   saveStoredTransactions, 
   loadSchemeCatalog, 
-  saveCustomScheme,
   saveAllSchemes
 } from './services/portfolioStorage';
 import { syncSchemesForHoldings, SchemeSyncTarget } from './services/mfApi';
@@ -29,12 +27,6 @@ export default function App() {
   const [isSyncingNavs, setIsSyncingNavs] = useState<boolean>(false);
   const [ledgerSchemeFilter, setLedgerSchemeFilter] = useState<string | undefined>(undefined);
   const [syncToast, setSyncToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-
-  // Add Transaction Modal State
-  const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
-  const [modalInitialSchemeCode, setModalInitialSchemeCode] = useState<string | undefined>(undefined);
-  const [modalInitialSchemeName, setModalInitialSchemeName] = useState<string | undefined>(undefined);
-  const [modalInitialFolio, setModalInitialFolio] = useState<string | undefined>(undefined);
 
   // Load initial data on mount and trigger auto-sync
   useEffect(() => {
@@ -256,92 +248,6 @@ export default function App() {
     }
   }, [schemes]);
 
-  // Add new transaction handler
-  const handleAddTransaction = useCallback((newTx: TransactionRecord, customScheme?: MutualFundScheme) => {
-    setTransactions(prev => {
-      const updated = [newTx, ...prev];
-      saveStoredTransactions(updated);
-      return updated;
-    });
-
-    if (customScheme) {
-      setSchemes(prev => {
-        const updated = { ...prev, [customScheme.schemeCode]: customScheme };
-        saveCustomScheme(customScheme);
-        return updated;
-      });
-    }
-  }, []);
-
-  // Delete transaction handler
-  const handleDeleteTransaction = useCallback((txId: string) => {
-    setTransactions(prev => {
-      const updated = prev.filter(t => t.id !== txId);
-      saveStoredTransactions(updated);
-      return updated;
-    });
-  }, []);
-
-  // Delete all transactions for a holding
-  const handleDeleteHolding = useCallback((schemeCode: string, folioNumber: string) => {
-    if (window.confirm(`Are you sure you want to remove this scheme and its transactions from your portfolio?`)) {
-      setTransactions(prev => {
-        const updated = prev.filter(t => !(t.schemeCode === schemeCode && t.folioNumber === folioNumber));
-        saveStoredTransactions(updated);
-        return updated;
-      });
-    }
-  }, []);
-
-  // Switch holding plan between Direct and Regular
-  const handleSwitchPlan = useCallback(async (schemeCode: string, targetPlan: 'Direct' | 'Regular') => {
-    try {
-      const currentScheme = schemes[schemeCode];
-      const schemeName = currentScheme?.schemeName || '';
-      
-      const { updatedSchemes, codeMigrations } = await syncSchemesForHoldings([{
-        schemeCode,
-        schemeName,
-        planType: targetPlan
-      }], { forceRefresh: true });
-
-      if (Object.keys(updatedSchemes).length > 0) {
-        const newCode = codeMigrations[schemeCode] || schemeCode;
-        const resolved = updatedSchemes[newCode] || updatedSchemes[schemeCode];
-
-        setSchemes(prev => {
-          const next = { ...prev, ...updatedSchemes };
-          saveAllSchemes(next);
-          return next;
-        });
-
-        setTransactions(prev => {
-          const nextTxs = prev.map(tx => {
-            if (tx.schemeCode === schemeCode || tx.schemeCode === newCode) {
-              return {
-                ...tx,
-                schemeCode: newCode,
-                schemeName: resolved?.schemeName || tx.schemeName,
-                planType: targetPlan
-              };
-            }
-            return tx;
-          });
-          saveStoredTransactions(nextTxs);
-          return nextTxs;
-        });
-
-        setSyncToast({
-          message: `Switched plan to ${targetPlan} Plan (#${newCode}) with live NAV ₹${resolved?.currentNav}`,
-          type: 'success'
-        });
-        setTimeout(() => setSyncToast(null), 3500);
-      }
-    } catch (err) {
-      console.warn('Error switching plan:', err);
-    }
-  }, [schemes]);
-
   // Import transactions from CAS statement
   const handleImportTransactions = useCallback((imported: TransactionRecord[], replaceExisting: boolean, newSchemes?: Record<string, MutualFundScheme>) => {
     setTransactions(prev => {
@@ -361,14 +267,6 @@ export default function App() {
       handleSyncAllNavs();
     }, 100);
   }, [handleSyncAllNavs]);
-
-  // Open modal with pre-filled scheme info
-  const handleOpenAddModal = (code?: string, name?: string, folio?: string) => {
-    setModalInitialSchemeCode(code);
-    setModalInitialSchemeName(name);
-    setModalInitialFolio(folio);
-    setIsAddModalOpen(true);
-  };
 
   // Jump to Ledger with scheme filter
   const handleViewSchemeLedger = (schemeCode: string) => {
@@ -403,7 +301,6 @@ export default function App() {
         summary={summary}
         isSyncingNavs={isSyncingNavs}
         onSyncNavs={handleSyncAllNavs}
-        onOpenAddModal={() => handleOpenAddModal()}
         onOpenImport={() => setActiveTab('import')}
       />
 
@@ -414,7 +311,6 @@ export default function App() {
             summary={summary}
             holdings={holdings}
             onNavigateTab={setActiveTab}
-            onOpenAddModal={() => handleOpenAddModal()}
             onOpenImport={() => setActiveTab('import')}
           />
         )}
@@ -422,19 +318,14 @@ export default function App() {
         {activeTab === 'holdings' && (
           <HoldingsTable
             holdings={holdings}
-            onOpenAddModal={handleOpenAddModal}
             onViewTransactions={handleViewSchemeLedger}
-            onDeleteHolding={handleDeleteHolding}
             onSyncSingleNav={handleSyncSingleNav}
-            onSwitchPlan={handleSwitchPlan}
           />
         )}
 
         {activeTab === 'transactions' && (
           <TransactionLedger
             transactions={transactions}
-            onOpenAddModal={handleOpenAddModal}
-            onDeleteTransaction={handleDeleteTransaction}
             selectedSchemeFilter={ledgerSchemeFilter}
             onClearSchemeFilter={() => setLedgerSchemeFilter(undefined)}
           />
@@ -460,17 +351,6 @@ export default function App() {
           />
         )}
       </main>
-
-      {/* Add Transaction Modal */}
-      <AddTransactionModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onAddTransaction={handleAddTransaction}
-        initialSchemeCode={modalInitialSchemeCode}
-        initialSchemeName={modalInitialSchemeName}
-        initialFolio={modalInitialFolio}
-        existingSchemes={schemes}
-      />
     </div>
   );
 }

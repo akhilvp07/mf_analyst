@@ -24,7 +24,6 @@ interface PortfolioOverviewProps {
   summary: PortfolioSummary;
   holdings: PortfolioHolding[];
   onNavigateTab: (tab: any) => void;
-  onOpenAddModal: () => void;
   onOpenImport: () => void;
 }
 
@@ -32,7 +31,6 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
   summary,
   holdings,
   onNavigateTab,
-  onOpenAddModal,
   onOpenImport
 }) => {
   const assetAllocation = computeAssetAllocation(holdings);

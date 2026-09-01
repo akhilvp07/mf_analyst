@@ -3,8 +3,6 @@ import {
   Search, 
   Filter, 
   ArrowUpDown, 
-  Plus, 
-  Trash2, 
   Calendar, 
   Receipt, 
   Download, 
@@ -21,16 +19,12 @@ import { exportTransactionsToCsv } from '../services/portfolioStorage';
 
 interface TransactionLedgerProps {
   transactions: TransactionRecord[];
-  onOpenAddModal: (schemeCode?: string, schemeName?: string, folio?: string) => void;
-  onDeleteTransaction: (id: string) => void;
   selectedSchemeFilter?: string;
   onClearSchemeFilter?: () => void;
 }
 
 export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
   transactions,
-  onOpenAddModal,
-  onDeleteTransaction,
   selectedSchemeFilter,
   onClearSchemeFilter
 }) => {
@@ -182,19 +176,10 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
           <button
             onClick={handleExportCsv}
             title="Download CSV statement"
-            className="px-3 py-2 text-xs font-medium rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 hover:text-white transition flex items-center gap-1.5 cursor-pointer shrink-0"
+            className="px-3 py-2 text-xs font-medium rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 hover:text-white transition flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto"
           >
             <Download className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Export CSV</span>
-          </button>
-
-          {/* Add Tx */}
-          <button
-            onClick={() => onOpenAddModal()}
-            className="px-3.5 py-2 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow-sm shadow-emerald-900/40 cursor-pointer shrink-0 ml-auto"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New Transaction</span>
           </button>
         </div>
       </div>
@@ -220,16 +205,15 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
                 <th className="py-3.5 px-3 text-right">NAV</th>
                 <th className="py-3.5 px-4 text-right">Amount (INR)</th>
                 <th className="py-3.5 px-3 text-center">Status</th>
-                <th className="py-3.5 px-4 text-center">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800/60 text-neutral-200">
               {displayedTxs.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-neutral-400">
+                  <td colSpan={7} className="py-12 text-center text-neutral-400">
                     <Receipt className="w-8 h-8 mx-auto text-neutral-600 mb-2" />
                     <p className="font-semibold text-neutral-300">No transactions recorded</p>
-                    <p className="text-xs text-neutral-500 mt-1">Add your first SIP or lumpsum purchase to start tracking.</p>
+                    <p className="text-xs text-neutral-500 mt-1">Import your CAS statement to load verified transaction logs.</p>
                   </td>
                 </tr>
               ) : (
@@ -289,17 +273,6 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
                         <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-md">
                           {tx.status}
                         </span>
-                      </td>
-
-                      {/* Action */}
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        <button
-                          onClick={() => onDeleteTransaction(tx.id)}
-                          title="Delete transaction"
-                          className="p-1.5 rounded-lg bg-neutral-800 hover:bg-rose-950/40 text-neutral-400 hover:text-rose-400 border border-neutral-700 transition cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
                       </td>
                     </tr>
                   );

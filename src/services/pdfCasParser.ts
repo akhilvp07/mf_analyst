@@ -118,6 +118,142 @@ export function normalizeAnyDate(text: string): string | null {
 }
 
 /**
+ * Words that can NEVER be part of a real human investor's name
+ */
+const INVALID_INVESTOR_WORDS = [
+  'fund', 'scheme', 'equity', 'debt', 'hybrid', 'elss', 'growth', 'direct', 'regular', 'plan', 'option',
+  'dividend', 'idcw', 'payout', 'reinvest', 'nav', 'folio', 'units', 'balance', 'transaction', 'investment',
+  'market', 'valuation', 'cost', 'stamp', 'duty', 'tax', 'stt', 'portfolio', 'statement', 'consolidated',
+  'account', 'summary', 'asset', 'management', 'amc', 'sebi', 'circular', 'regulations', 'pursuant',
+  'w.e.f', 'with effect', 'changed', 'change', 'been', 'effective', 'dated', 'dear investor', 'cams',
+  'kfin', 'kfintech', 'karvy', 'cdsl', 'nsdl', 'registrar', 'rta', 'services', 'pvt', 'ltd', 'limited',
+  'holding', 'details', 'report', 'page', 'date', 'period', 'nominee', 'bank', 'ifsc', 'neft', 'rtgs',
+  'micr', 'branch', 'kyc', 'pan', 'mobile', 'email', 'tel', 'phone', 'axis', 'hdfc', 'icici', 'sbi',
+  'kotak', 'nippon', 'uti', 'mirae', 'tata', 'parag', 'parikh', 'aditya', 'birla', 'dsp', 'franklin',
+  'motilal', 'oswal', 'quant', 'canara', 'robeco', 'bandhan', 'invesco', 'hsbc', 'sundaram', 'edelweiss',
+  'pgim', 'navi', 'groww', 'zerodha', 'quantum', 'ppfas', 'templeton', 'financial', 'advisor', 'distributor',
+  'sub broker', 'arn', 'euin', 'ria', 'ina', 'crn', 'address', 'pin', 'pincode', 'india', 'city', 'state',
+  'road', 'street', 'nagar', 'cross', 'floor', 'flat', 'house', 'building', 'apartment', 'residence',
+  'colony', 'dist', 'district', 'near', 'opp', 'opposite', 'capital', 'gain', 'gains', 'valuation', 'redemption',
+  'purchase', 'switch', 'inflow', 'outflow', 'opening', 'closing', 'total', 'grand', 'amount', 'rupees', 'inr'
+];
+
+/**
+ * Validate that a candidate string is a real person's name and not a fund notice or address line
+ */
+export function isValidPersonName(candidate: string): boolean {
+  if (!candidate) return false;
+  let clean = candidate
+    .replace(/^[:\-\s,]+|[:\-\s,]+$/g, '')
+    .replace(/^(?:Mr\.|Ms\.|Mrs\.|Dr\.|Shri|Smt\.|Dear|To\s*[:,-]?|Portfolio\s+of|Investor\s+Name\s*[:\-]|Name\s*[:\-])\s+/i, '')
+    .trim();
+
+  // Reasonable length bounds for full person names
+  if (clean.length < 3 || clean.length > 45) return false;
+
+  // Cannot contain numbers or special structural characters
+  if (/[\d@#$^*_+=\\/{}[\]|<>~`"%;:?]/.test(clean)) return false;
+
+  const lower = clean.toLowerCase();
+
+  // Reject if it starts with preposition words like "of", "in", "to", "for", "from", "on", "as", "by"
+  if (/^(of|in|to|for|from|on|as|by|the|an|a|with|at|under|has|have|had|is|are|been)\b/i.test(clean)) {
+    return false;
+  }
+
+  // Reject if it contains any mutual fund, disclaimer or administrative keyword
+  for (const word of INVALID_INVESTOR_WORDS) {
+    const wordPattern = new RegExp(`\\b${word}\\b`, 'i');
+    if (wordPattern.test(lower)) {
+      return false;
+    }
+  }
+
+  // Must contain primarily letters, spaces, dots, hyphens, and apostrophes
+  if (!/^[A-Za-z][A-Za-z\s.'-]*$/.test(clean)) return false;
+
+  // Words count between 1 and 6
+  const words = clean.split(/\s+/).filter(w => w.length > 0);
+  if (words.length < 1 || words.length > 6) return false;
+
+  return true;
+}
+
+/**
+ * Format a person's name into clean Title Case
+ */
+export function formatPersonName(rawName: string): string {
+  let clean = rawName
+    .replace(/^[:\-\s,]+|[:\-\s,]+$/g, '')
+    .replace(/^(?:Mr\.|Ms\.|Mrs\.|Dr\.|Shri|Smt\.|Dear|To\s*[:,-]?|Portfolio\s+of|Investor\s+Name\s*[:\-]|Name\s*[:\-])\s+/i, '')
+    .trim();
+
+  return clean
+    .split(/\s+/)
+    .map(w => {
+      if (w.length <= 2) return w.toUpperCase(); // Initials like V, P, K
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    })
+    .join(' ');
+}
+
+/**
+ * Extract clean investor name from page lines and text
+ */
+export function extractCleanInvestorName(firstPageLines: string[], allLines: string[], fullText: string): string | undefined {
+  // 1. Check explicit labeled patterns in firstPageLines / fullText
+  const labeledRegexes = [
+    /(?:Investor\s+Name|Name\s+of\s+(?:Sole\s+|First\s+)?Holder|Unit\s*Holder(?:\s+Name)?|Primary\s+Holder)\s*[:\-]\s*([A-Za-z\s.'-]{3,50})/i,
+    /\bName\s*:\s*([A-Za-z\s.'-]{3,50})/i,
+    /\bDear\s+(?:Mr\.|Ms\.|Mrs\.|Dr\.)\s*([A-Za-z\s.'-]{3,50})(?:,|\n|$)/i,
+    /\bPortfolio\s+of\s*[:\-]?\s*(?:Mr\.|Ms\.|Mrs\.|Dr\.)?\s*([A-Za-z\s.'-]{3,50})(?:,|\n|$)/i
+  ];
+
+  for (const regex of labeledRegexes) {
+    const m = fullText.match(regex);
+    if (m && m[1]) {
+      const candidate = m[1].trim();
+      if (isValidPersonName(candidate)) {
+        return formatPersonName(candidate);
+      }
+    }
+  }
+
+  // 2. Scan lines in first page (Page 1 top section before tables)
+  for (let i = 0; i < Math.min(firstPageLines.length, 25); i++) {
+    const line = firstPageLines[i].trim();
+    
+    // Check if line is "To," or "To"
+    if (/^To\s*[,:]?$/i.test(line) && i + 1 < firstPageLines.length) {
+      const nextLine = firstPageLines[i + 1].trim();
+      if (isValidPersonName(nextLine)) {
+        return formatPersonName(nextLine);
+      }
+    }
+
+    // Check labeled line
+    for (const regex of labeledRegexes) {
+      const m = line.match(regex);
+      if (m && m[1]) {
+        const candidate = m[1].trim();
+        if (isValidPersonName(candidate)) {
+          return formatPersonName(candidate);
+        }
+      }
+    }
+
+    // Check standalone line in header (lines 2 to 12)
+    if (i >= 1 && i <= 12 && !isDisclaimerOrNoticeLine(line) && !line.includes(':')) {
+      if (isValidPersonName(line)) {
+        return formatPersonName(line);
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Filter out disclaimers, name change notices, SEBI circulars, and header/footer noise
  */
 export function isDisclaimerOrNoticeLine(line: string): boolean {
@@ -567,6 +703,7 @@ export async function parsePdfCasStatement(
     const numPages = pdfDoc.numPages;
     let fullText = '';
     const allReconstructedLines: string[] = [];
+    const firstPageLines: string[] = [];
 
     // Extract text from each page with adaptive vertical clustering
     for (let pageNum = 1; pageNum <= numPages; pageNum++) {
@@ -608,14 +745,16 @@ export async function parsePdfCasStatement(
         const lineStr = lineCluster.words.map(w => w.text).join(' ');
         if (lineStr.trim()) {
           allReconstructedLines.push(lineStr);
+          if (pageNum === 1) {
+            firstPageLines.push(lineStr);
+          }
         }
       });
-
-      fullText += '\n' + allReconstructedLines.join('\n');
     }
 
+    fullText = allReconstructedLines.join('\n');
+
     // Extract Statement Metadata (PAN, Investor Name, Period)
-    let investorName: string | undefined;
     let pan: string | undefined;
     let statementPeriod: string | undefined;
 
@@ -625,13 +764,8 @@ export async function parsePdfCasStatement(
     const periodMatch = fullText.match(/(?:Statement Period|Period|For the period)\s*[:\-\s]\s*([^\n\r]+)/i);
     if (periodMatch) statementPeriod = periodMatch[1].trim();
 
-    const nameMatch = fullText.match(/(?:Investor Name|Name|Dear Mr\.|Dear Ms\.|Dear Dr\.)\s*[:\-\s]*([A-Z\s]{3,40})/i);
-    if (nameMatch) {
-      const cleanName = nameMatch[1].trim();
-      if (!cleanName.toLowerCase().includes('statement') && !cleanName.toLowerCase().includes('consolidated') && !cleanName.toLowerCase().includes('account')) {
-        investorName = cleanName;
-      }
-    }
+    // Use robust investor name extraction
+    const investorName = extractCleanInvestorName(firstPageLines, allReconstructedLines, fullText);
 
     // Active state tracking during sequential scan
     let currentFolio = 'FOLIO-1';
