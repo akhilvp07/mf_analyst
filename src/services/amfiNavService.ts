@@ -19,6 +19,188 @@ export interface AmfiNavRecord {
 
 // Built-in seed index for instant zero-latency lookup of primary Indian MF ISINs
 const SEED_AMFI_RECORDS: Record<string, AmfiNavRecord> = {
+  // Motilal Oswal Midcap Fund (Direct - Growth) - Scheme Code 127042
+  'INF247L01445': {
+    schemeCode: '127042',
+    isin: 'INF247L01445',
+    isinGrowth: 'INF247L01445',
+    schemeName: 'Motilal Oswal Midcap Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 123.44,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Mid Cap'
+  },
+  // Motilal Oswal Midcap Fund (Regular - Growth) - Scheme Code 127041
+  'INF247L01437': {
+    schemeCode: '127041',
+    isin: 'INF247L01437',
+    isinGrowth: 'INF247L01437',
+    schemeName: 'Motilal Oswal Midcap Fund',
+    planType: 'Regular',
+    optionType: 'Growth',
+    currentNav: 110.20,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Mid Cap'
+  },
+  // Motilal Oswal Midcap Fund (Direct - IDCW) - Scheme Code 127040
+  'INF247L01429': {
+    schemeCode: '127040',
+    isin: 'INF247L01429',
+    isinGrowth: 'INF247L01429',
+    schemeName: 'Motilal Oswal Midcap Fund',
+    planType: 'Direct',
+    optionType: 'IDCW',
+    currentNav: 45.30,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Mid Cap'
+  },
+  // Motilal Oswal Midcap Fund (Regular - IDCW) - Scheme Code 127039
+  'INF247L01411': {
+    schemeCode: '127039',
+    isin: 'INF247L01411',
+    isinGrowth: 'INF247L01411',
+    schemeName: 'Motilal Oswal Midcap Fund',
+    planType: 'Regular',
+    optionType: 'IDCW',
+    currentNav: 41.10,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Mid Cap'
+  },
+  // Motilal Oswal Large and Midcap Fund (Direct - Growth) - Scheme Code 146985
+  'INF247L01569': {
+    schemeCode: '146985',
+    isin: 'INF247L01569',
+    isinGrowth: 'INF247L01569',
+    schemeName: 'Motilal Oswal Large and Midcap Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 38.50,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Large & Mid Cap'
+  },
+  // Motilal Oswal Large and Midcap Fund (Regular - Growth) - Scheme Code 146984
+  'INF247L01551': {
+    schemeCode: '146984',
+    isin: 'INF247L01551',
+    isinGrowth: 'INF247L01551',
+    schemeName: 'Motilal Oswal Large and Midcap Fund',
+    planType: 'Regular',
+    optionType: 'Growth',
+    currentNav: 35.20,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Large & Mid Cap'
+  },
+  // Motilal Oswal Flexi Cap Fund (Direct - Growth) - Scheme Code 124973
+  'INF247L01064': {
+    schemeCode: '124973',
+    isin: 'INF247L01064',
+    isinGrowth: 'INF247L01064',
+    schemeName: 'Motilal Oswal Flexi Cap Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 58.40,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Flexi Cap'
+  },
+  // Motilal Oswal Flexi Cap Fund (Regular - Growth) - Scheme Code 124972
+  'INF247L01056': {
+    schemeCode: '124972',
+    isin: 'INF247L01056',
+    isinGrowth: 'INF247L01056',
+    schemeName: 'Motilal Oswal Flexi Cap Fund',
+    planType: 'Regular',
+    optionType: 'Growth',
+    currentNav: 52.80,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Flexi Cap'
+  },
+  // Motilal Oswal Focused Fund (Direct - Growth) - Scheme Code 118251
+  'INF247L01288': {
+    schemeCode: '118251',
+    isin: 'INF247L01288',
+    isinGrowth: 'INF247L01288',
+    schemeName: 'Motilal Oswal Focused Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 48.90,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Large Cap'
+  },
+  // Motilal Oswal Small Cap Fund (Direct - Growth) - Scheme Code 151122
+  'INF247L01CQ1': {
+    schemeCode: '151122',
+    isin: 'INF247L01CQ1',
+    isinGrowth: 'INF247L01CQ1',
+    schemeName: 'Motilal Oswal Small Cap Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 16.80,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Small Cap'
+  },
+  // Motilal Oswal Nifty Midcap 150 Index Fund (Direct - Growth) - Scheme Code 147573
+  'INF247L01999': {
+    schemeCode: '147573',
+    isin: 'INF247L01999',
+    isinGrowth: 'INF247L01999',
+    schemeName: 'Motilal Oswal Nifty Midcap 150 Index Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 36.25,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Index Fund'
+  },
+  // Motilal Oswal Nifty Midcap 150 Index Fund (Regular - Growth) - Scheme Code 147572
+  'INF247L01981': {
+    schemeCode: '147572',
+    isin: 'INF247L01981',
+    isinGrowth: 'INF247L01981',
+    schemeName: 'Motilal Oswal Nifty Midcap 150 Index Fund',
+    planType: 'Regular',
+    optionType: 'Growth',
+    currentNav: 34.80,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Index Fund'
+  },
+  // Motilal Oswal Nifty Smallcap 250 Index Fund (Direct - Growth) - Scheme Code 147571
+  'INF247L01973': {
+    schemeCode: '147571',
+    isin: 'INF247L01973',
+    isinGrowth: 'INF247L01973',
+    schemeName: 'Motilal Oswal Nifty Smallcap 250 Index Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 35.10,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Index Fund'
+  },
+  // Motilal Oswal Nifty 500 Index Fund (Direct - Growth) - Scheme Code 147569
+  'INF247L01957': {
+    schemeCode: '147569',
+    isin: 'INF247L01957',
+    isinGrowth: 'INF247L01957',
+    schemeName: 'Motilal Oswal Nifty 500 Index Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 28.90,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Index Fund'
+  },
   // Motilal Oswal Nasdaq 100 Fund of Fund (Direct - Growth)
   'INF247L01718': {
     schemeCode: '145552',
@@ -44,6 +226,42 @@ const SEED_AMFI_RECORDS: Record<string, AmfiNavRecord> = {
     fundHouse: 'Motilal Oswal Mutual Fund',
     category: 'Index Fund'
   },
+  'INF247L01536': {
+    schemeCode: '145552',
+    isin: 'INF247L01536',
+    isinGrowth: 'INF247L01536',
+    schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 70.45,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Index Fund'
+  },
+  'INF247L01544': {
+    schemeCode: '145552',
+    isin: 'INF247L01544',
+    isinGrowth: 'INF247L01544',
+    schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 70.45,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Index Fund'
+  },
+  'INF247L01528': {
+    schemeCode: '145552',
+    isin: 'INF247L01528',
+    isinGrowth: 'INF247L01528',
+    schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 70.45,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Index Fund'
+  },
   // Motilal Oswal Nasdaq 100 Fund of Fund (Regular - Growth)
   'INF247L01700': {
     schemeCode: '145551',
@@ -57,11 +275,47 @@ const SEED_AMFI_RECORDS: Record<string, AmfiNavRecord> = {
     fundHouse: 'Motilal Oswal Mutual Fund',
     category: 'Index Fund'
   },
+  'INF247L01049': {
+    schemeCode: '145551',
+    isin: 'INF247L01049',
+    isinGrowth: 'INF247L01049',
+    schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund',
+    planType: 'Regular',
+    optionType: 'Growth',
+    currentNav: 63.80,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Index Fund'
+  },
+  'INF247L01510': {
+    schemeCode: '145551',
+    isin: 'INF247L01510',
+    isinGrowth: 'INF247L01510',
+    schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund',
+    planType: 'Regular',
+    optionType: 'Growth',
+    currentNav: 63.80,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Index Fund'
+  },
   // Motilal Oswal Nasdaq 100 ETF
   'INF247L01AP3': {
     schemeCode: '114984',
     isin: 'INF247L01AP3',
     isinGrowth: 'INF247L01AP3',
+    schemeName: 'Motilal Oswal Nasdaq 100 ETF',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 274.50,
+    navDate: '2026-08-31',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Index Fund'
+  },
+  'INF247L01015': {
+    schemeCode: '114984',
+    isin: 'INF247L01015',
+    isinGrowth: 'INF247L01015',
     schemeName: 'Motilal Oswal Nasdaq 100 ETF',
     planType: 'Direct',
     optionType: 'Growth',

@@ -121,7 +121,7 @@ export function normalizeAnyDate(text: string): string | null {
  * Words that can NEVER be part of a real human investor's name
  */
 const INVALID_INVESTOR_WORDS = [
-  'fund', 'scheme', 'equity', 'debt', 'hybrid', 'elss', 'growth', 'direct', 'regular', 'plan', 'option',
+  'fund', 'funds', 'scheme', 'equity', 'debt', 'hybrid', 'elss', 'growth', 'direct', 'regular', 'plan', 'option',
   'dividend', 'idcw', 'payout', 'reinvest', 'nav', 'folio', 'units', 'balance', 'transaction', 'investment',
   'market', 'valuation', 'cost', 'stamp', 'duty', 'tax', 'stt', 'portfolio', 'statement', 'consolidated',
   'account', 'summary', 'asset', 'management', 'amc', 'sebi', 'circular', 'regulations', 'pursuant',
@@ -135,7 +135,9 @@ const INVALID_INVESTOR_WORDS = [
   'sub broker', 'arn', 'euin', 'ria', 'ina', 'crn', 'address', 'pin', 'pincode', 'india', 'city', 'state',
   'road', 'street', 'nagar', 'cross', 'floor', 'flat', 'house', 'building', 'apartment', 'residence',
   'colony', 'dist', 'district', 'near', 'opp', 'opposite', 'capital', 'gain', 'gains', 'valuation', 'redemption',
-  'purchase', 'switch', 'inflow', 'outflow', 'opening', 'closing', 'total', 'grand', 'amount', 'rupees', 'inr'
+  'purchase', 'switch', 'inflow', 'outflow', 'opening', 'closing', 'total', 'grand', 'amount', 'rupees', 'inr',
+  'long term', 'small cap', 'mid cap', 'large cap', 'flexi cap', 'index fund', 'etf', 'demat', 'notice',
+  'has', 'have', 'had', 'been', 'were', 'was', 'being', 'having', 'which', 'that', 'this', 'these', 'those'
 ];
 
 /**
@@ -149,32 +151,36 @@ export function isValidPersonName(candidate: string): boolean {
     .trim();
 
   // Reasonable length bounds for full person names
-  if (clean.length < 3 || clean.length > 45) return false;
+  if (clean.length < 3 || clean.length > 40) return false;
 
   // Cannot contain numbers or special structural characters
   if (/[\d@#$^*_+=\\/{}[\]|<>~`"%;:?]/.test(clean)) return false;
 
   const lower = clean.toLowerCase();
 
-  // Reject if it starts with preposition words like "of", "in", "to", "for", "from", "on", "as", "by"
-  if (/^(of|in|to|for|from|on|as|by|the|an|a|with|at|under|has|have|had|is|are|been)\b/i.test(clean)) {
+  // Reject if candidate contains any preposition, auxiliary verb, or fund term
+  if (/^(of|in|to|for|from|on|as|by|the|an|a|with|at|under|has|have|had|is|are|been|c)\b/i.test(clean)) {
     return false;
   }
 
   // Reject if it contains any mutual fund, disclaimer or administrative keyword
   for (const word of INVALID_INVESTOR_WORDS) {
-    const wordPattern = new RegExp(`\\b${word}\\b`, 'i');
-    if (wordPattern.test(lower)) {
+    if (lower.includes(word.toLowerCase())) {
       return false;
     }
   }
 
-  // Must contain primarily letters, spaces, dots, hyphens, and apostrophes
+  // Must contain only letters, dots, hyphens, spaces, apostrophes
   if (!/^[A-Za-z][A-Za-z\s.'-]*$/.test(clean)) return false;
 
-  // Words count between 1 and 6
+  // Words count between 1 and 5
   const words = clean.split(/\s+/).filter(w => w.length > 0);
-  if (words.length < 1 || words.length > 6) return false;
+  if (words.length < 1 || words.length > 5) return false;
+
+  // Each word should be a reasonable person name token
+  for (const w of words) {
+    if (w.length > 20) return false; // Concatenated junk
+  }
 
   return true;
 }
@@ -198,40 +204,33 @@ export function formatPersonName(rawName: string): string {
 }
 
 /**
- * Extract clean investor name from page lines and text
+ * Extract clean investor name strictly from first page header lines
  */
 export function extractCleanInvestorName(firstPageLines: string[], allLines: string[], fullText: string): string | undefined {
-  // 1. Check explicit labeled patterns in firstPageLines / fullText
+  // Labeled regex patterns targeting header metadata lines
   const labeledRegexes = [
-    /(?:Investor\s+Name|Name\s+of\s+(?:Sole\s+|First\s+)?Holder|Unit\s*Holder(?:\s+Name)?|Primary\s+Holder)\s*[:\-]\s*([A-Za-z\s.'-]{3,50})/i,
-    /\bName\s*:\s*([A-Za-z\s.'-]{3,50})/i,
-    /\bDear\s+(?:Mr\.|Ms\.|Mrs\.|Dr\.)\s*([A-Za-z\s.'-]{3,50})(?:,|\n|$)/i,
-    /\bPortfolio\s+of\s*[:\-]?\s*(?:Mr\.|Ms\.|Mrs\.|Dr\.)?\s*([A-Za-z\s.'-]{3,50})(?:,|\n|$)/i
+    /^(?:Investor\s+Name|Name\s+of\s+(?:Sole\s+|First\s+)?Holder|Unit\s*Holder(?:\s+Name)?|Primary\s+Holder|1st\s+Holder|Sole\s+Holder)\s*[:\-]\s*([A-Za-z\s.'-]{3,40})/i,
+    /^Name\s*[:\-]\s*([A-Za-z\s.'-]{3,40})/i,
+    /^Dear\s+(?:Mr\.|Ms\.|Mrs\.|Dr\.|Shri|Smt\.)?\s*([A-Za-z\s.'-]{3,40})(?:,|\n|$)/i,
+    /^Portfolio\s+of\s*[:\-]?\s*(?:Mr\.|Ms\.|Mrs\.|Dr\.|Shri|Smt\.)?\s*([A-Za-z\s.'-]{3,40})(?:,|\n|$)/i
   ];
 
-  for (const regex of labeledRegexes) {
-    const m = fullText.match(regex);
-    if (m && m[1]) {
-      const candidate = m[1].trim();
-      if (isValidPersonName(candidate)) {
-        return formatPersonName(candidate);
-      }
-    }
-  }
+  // Scan only the top section of Page 1 (first 25 lines)
+  const headerLines = firstPageLines.slice(0, 25);
 
-  // 2. Scan lines in first page (Page 1 top section before tables)
-  for (let i = 0; i < Math.min(firstPageLines.length, 25); i++) {
-    const line = firstPageLines[i].trim();
-    
-    // Check if line is "To," or "To"
-    if (/^To\s*[,:]?$/i.test(line) && i + 1 < firstPageLines.length) {
-      const nextLine = firstPageLines[i + 1].trim();
-      if (isValidPersonName(nextLine)) {
+  for (let i = 0; i < headerLines.length; i++) {
+    const line = headerLines[i].trim();
+    if (!line || isDisclaimerOrNoticeLine(line)) continue;
+
+    // Check if line is an address salutation like "To," or "To"
+    if (/^To\s*[,:]?$/i.test(line) && i + 1 < headerLines.length) {
+      const nextLine = headerLines[i + 1].trim();
+      if (!isDisclaimerOrNoticeLine(nextLine) && isValidPersonName(nextLine)) {
         return formatPersonName(nextLine);
       }
     }
 
-    // Check labeled line
+    // Check labeled line patterns
     for (const regex of labeledRegexes) {
       const m = line.match(regex);
       if (m && m[1]) {
@@ -242,8 +241,8 @@ export function extractCleanInvestorName(firstPageLines: string[], allLines: str
       }
     }
 
-    // Check standalone line in header (lines 2 to 12)
-    if (i >= 1 && i <= 12 && !isDisclaimerOrNoticeLine(line) && !line.includes(':')) {
+    // Check standalone line in the very top header (lines 1 to 10)
+    if (i >= 1 && i <= 10 && !line.includes(':') && !line.includes(';') && !line.includes('@')) {
       if (isValidPersonName(line)) {
         return formatPersonName(line);
       }
@@ -1003,12 +1002,16 @@ export async function parsePdfCasStatement(
                 upperLine.includes('SELL') || 
                 upperLine.includes('SWP') || 
                 upperLine.includes('SWITCH OUT') || 
-                upperLine.includes('SWITCH-OUT');
+                upperLine.includes('SWITCH-OUT') ||
+                upperLine.includes('SWITCHOUT') ||
+                upperLine.includes('WITHDRAWAL');
 
-              if (isNegative && isExplicitRedemption) {
-                txType = upperLine.includes('SWITCH OUT') ? 'SWITCH_OUT' : 'REDEMPTION';
-              } else if (!isExplicitRedemption && (txType === 'REDEMPTION' || txType === 'SWITCH_OUT')) {
-                txType = 'SIP';
+              if (isExplicitRedemption) {
+                txType = (upperLine.includes('SWITCH OUT') || upperLine.includes('SWITCH-OUT') || upperLine.includes('SWITCHOUT')) 
+                  ? 'SWITCH_OUT' 
+                  : 'REDEMPTION';
+              } else if (isNegative) {
+                txType = 'REDEMPTION';
               }
 
               transactions.push({
@@ -1089,11 +1092,19 @@ export async function parsePdfCasStatement(
           if (amount >= 50 && amount <= 100000000 && units > 0) {
             let txType = classifyTransactionType(windowText);
             const upperWin = windowText.toUpperCase();
-            const isExplicitRedemption = upperWin.includes('REDEMPTION') || upperWin.includes('REDEEM') || upperWin.includes('SELL') || upperWin.includes('SWP');
-            if (isNegative && isExplicitRedemption) {
+            const isExplicitRedemption = 
+              upperWin.includes('REDEMPTION') || 
+              upperWin.includes('REDEEM') || 
+              upperWin.includes('SELL') || 
+              upperWin.includes('SWP') ||
+              upperWin.includes('SWITCH OUT') ||
+              upperWin.includes('SWITCH-OUT') ||
+              upperWin.includes('WITHDRAWAL');
+
+            if (isExplicitRedemption) {
+              txType = (upperWin.includes('SWITCH OUT') || upperWin.includes('SWITCH-OUT')) ? 'SWITCH_OUT' : 'REDEMPTION';
+            } else if (isNegative) {
               txType = 'REDEMPTION';
-            } else if (!isExplicitRedemption && txType === 'REDEMPTION') {
-              txType = 'SIP';
             }
 
             transactions.push({
@@ -1116,10 +1127,10 @@ export async function parsePdfCasStatement(
       }
     }
 
-    // Deduplicate any duplicate entries on the same date, amount, units and folio
+    // Deduplicate any duplicate entries on the same scheme, date, amount, units and type
     const uniqueMap = new Map<string, TransactionRecord>();
     transactions.forEach(tx => {
-      const key = `${tx.date}_${tx.amount}_${tx.units}_${tx.folioNumber}`;
+      const key = `${tx.schemeCode}_${tx.date}_${tx.type}_${tx.amount}_${tx.units}`;
       if (!uniqueMap.has(key)) {
         uniqueMap.set(key, tx);
       }

@@ -121,17 +121,20 @@ export function cleanFundDisplayName(rawName: string): string {
   if (!rawName) return 'Mutual Fund';
   let clean = rawName
     .replace(/[\r\n\t]+/g, ' ')
+    // Remove parenthesized blocks containing ISIN, Advisor, Registrar, Folio, Demat, Broker, ARN, EUIN
+    .replace(/\([^\)]*(?:ISIN|Advisor|Registrar|Folio|Demat|Broker|ARN|EUIN|RTA)[^\)]*\)/gi, '')
+    .replace(/\[[^\]]*(?:ISIN|Advisor|Registrar|Folio|Demat|Broker|ARN|EUIN|RTA)[^\]]*\]/gi, '')
     // Remove ISIN fragments e.g. (ISIN: INF247L01536), ISIN: INF247L01536, ISIN:INF...
     .replace(/\(?\bISIN\b[\s:]*[A-Z0-9]+[A-Z0-9\)]*/gi, '')
     .replace(/\(ISIN:[^\)]*\)?/gi, '')
     // Remove Folio, Advisor, Registrar artifacts
     .replace(/Folio\s*(?:No|Number|\#)?\s*[:\-\s]*[A-Z0-9\/\-_]+/gi, '')
-    .replace(/Advisor\s*[:\-\s]*[^\-]+/gi, '')
-    .replace(/Registrar\s*[:\-\s]*[^\-]+/gi, '')
+    .replace(/Advisor\s*[:\-\s]*[^\-\)\(\]]+/gi, '')
+    .replace(/Registrar\s*[:\-\s]*[^\-\)\(\]]+/gi, '')
     // Remove Demat indicators e.g. (Demat), [Demat], Demat
     .replace(/\(?\[?\bDemat(?:\s+Account)?\b\]?\)?/gi, '')
-    // Remove leading Scheme Name labels or alphanumeric codes e.g. 128TSDGG-Axis
-    .replace(/^\s*(?:Scheme\s*Name\s*[:\-\s]*|Scheme\s*[:\-\s]*|[0-9A-Z]{3,8}\s*[-–—]\s*)/i, '')
+    // Remove leading Scheme Name labels or AMC alphanumeric internal codes e.g. 127FMGDG-Motilal or 128TSDGG-Axis
+    .replace(/^\s*(?:Scheme\s*Name\s*[:\-\s]*|Scheme\s*[:\-\s]*|[0-9A-Za-z]{2,14}\s*[-–—:]\s*)/i, '')
     // Normalize dashes surrounded by letters e.g. ELSS- Tax -> ELSS - Tax
     .replace(/([a-zA-Z0-9])-([a-zA-Z0-9])/g, '$1 - $2');
 
@@ -275,11 +278,24 @@ export function detectOptionType(
 }
 
 /**
+ * Normalize and clean up folio numbers from CAMS / KFintech statements
+ */
+export function normalizeFolioNumber(folio?: string): string {
+  if (!folio) return 'FOLIO-1';
+  let f = folio.trim();
+  // Strip common prefix labels like "Folio No:", "Folio:", "Folio Number:", "with "
+  f = f.replace(/^(?:Folio\s*(?:No|Number|\#)?\s*[:\-\s]*|with\s+|held\s+in\s+)/i, '').trim();
+  // Remove trailing "/ 0", "/0", " / 0", " /", "/"
+  f = f.replace(/\s*\/\s*0$/g, '').replace(/\s*\/$/g, '').trim();
+  return f || 'FOLIO-1';
+}
+
+/**
  * Validate if a string is a genuine folio number (must contain at least one digit and not be a stop word)
  */
 export function isValidFolioNumber(folio?: string): boolean {
   if (!folio) return false;
-  const f = folio.trim();
+  const f = normalizeFolioNumber(folio);
   if (f.length < 2) return false;
   if (!/\d/.test(f)) return false; // Genuine folios in India must contain digits
   const stopWords = /^(with|for|and|to|held|in|the|by|as|at|from|is|are|was|were|details|summary|statement|period|date|name|total|valuation|single|joint|status|active|mode|tax|kyc|pan|nominee|bank|mandate|direct|growth|regular|idcw|demat|cams|kfintech|karvy|amc|mf|folio|account|number|no)$/i;
@@ -287,34 +303,47 @@ export function isValidFolioNumber(folio?: string): boolean {
 }
 
 /**
- * Roll up raw transaction records into portfolio holdings and calculate metrics
+ * Roll up raw transaction records into portfolio holdings and calculate metrics.
+ * Correctly accounts for redemptions and switch-outs by deducting units and proportional cost basis chronologically.
  */
 export function computePortfolioHoldings(
   transactions: TransactionRecord[],
   schemeCatalog: Record<string, MutualFundScheme>
 ): { holdings: PortfolioHolding[]; summary: PortfolioSummary } {
+  // 1. Sort transactions in ascending chronological order (oldest first) so purchases precede redemptions
+  const validTxs = transactions
+    .filter(t => t.status !== 'FAILED')
+    .map(t => ({
+      ...t,
+      folioNumber: normalizeFolioNumber(t.folioNumber),
+      schemeName: cleanFundDisplayName(t.schemeName)
+    }))
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  // 2. Identify the primary/canonical folio for each schemeCode
+  const schemeDefaultFolioMap = new Map<string, string>();
+  for (const tx of validTxs) {
+    if (isValidFolioNumber(tx.folioNumber) && !schemeDefaultFolioMap.has(tx.schemeCode)) {
+      schemeDefaultFolioMap.set(tx.schemeCode, tx.folioNumber);
+    }
+  }
+
+  // 3. Group transactions by schemeCode + normalized folio
   const schemeMap = new Map<string, {
     schemeCode: string;
     schemeName: string;
     folioNumber: string;
     units: number;
     investedAmount: number;
+    totalPurchasedUnits: number;
+    totalPurchasedAmount: number;
+    totalRedeemedUnits: number;
+    totalRedeemedAmount: number;
     transactions: TransactionRecord[];
   }>();
 
-  // Pre-scan valid folios for each schemeCode to fix any transactions corrupted with "with" or invalid folio tokens
-  const schemeDefaultFolioMap = new Map<string, string>();
-  for (const tx of transactions) {
-    if (isValidFolioNumber(tx.folioNumber) && !schemeDefaultFolioMap.has(tx.schemeCode)) {
-      schemeDefaultFolioMap.set(tx.schemeCode, tx.folioNumber.trim());
-    }
-  }
-
-  // Group transactions by schemeCode + sanitized folioNumber
-  for (const tx of transactions) {
-    if (tx.status === 'FAILED') continue;
-
-    let sanitizedFolio = (tx.folioNumber || '').trim();
+  for (const tx of validTxs) {
+    let sanitizedFolio = tx.folioNumber;
     if (!isValidFolioNumber(sanitizedFolio)) {
       sanitizedFolio = schemeDefaultFolioMap.get(tx.schemeCode) || 'FOLIO-1';
     }
@@ -329,6 +358,10 @@ export function computePortfolioHoldings(
         folioNumber: sanitizedFolio,
         units: 0,
         investedAmount: 0,
+        totalPurchasedUnits: 0,
+        totalPurchasedAmount: 0,
+        totalRedeemedUnits: 0,
+        totalRedeemedAmount: 0,
         transactions: []
       });
     }
@@ -336,14 +369,45 @@ export function computePortfolioHoldings(
     const item = schemeMap.get(key)!;
     item.transactions.push(tx);
 
-    if (tx.type === 'SIP' || tx.type === 'LUMPSUM' || tx.type === 'SWITCH_IN' || tx.type === 'DIVIDEND_REINVEST') {
-      item.units += tx.units;
-      item.investedAmount += tx.amount;
-    } else if (tx.type === 'REDEMPTION' || tx.type === 'SWITCH_OUT') {
-      // For redemption, reduce units and proportional invested amount
-      const unitRatio = item.units > 0 ? Math.min(1, tx.units / item.units) : 1;
-      item.investedAmount = Math.max(0, item.investedAmount * (1 - unitRatio));
-      item.units = Math.max(0, item.units - tx.units);
+    const txTypeUpper = (tx.type || '').toUpperCase();
+    const txUnits = Math.abs(tx.units || 0);
+    const txAmount = Math.abs(tx.amount || 0);
+
+    const isRedemption = 
+      txTypeUpper === 'REDEMPTION' || 
+      txTypeUpper === 'SWITCH_OUT' || 
+      txTypeUpper === 'SWP' || 
+      txTypeUpper.includes('REDEEM') || 
+      txTypeUpper.includes('SELL') || 
+      txTypeUpper.includes('SWITCH_OUT');
+
+    const isPurchase = 
+      txTypeUpper === 'SIP' || 
+      txTypeUpper === 'LUMPSUM' || 
+      txTypeUpper === 'SWITCH_IN' || 
+      txTypeUpper === 'DIVIDEND_REINVEST' || 
+      txTypeUpper.includes('BUY') || 
+      txTypeUpper.includes('PURCHASE') ||
+      !isRedemption;
+
+    if (isPurchase && !isRedemption) {
+      item.units += txUnits;
+      item.investedAmount += txAmount;
+      item.totalPurchasedUnits += txUnits;
+      item.totalPurchasedAmount += txAmount;
+    } else if (isRedemption) {
+      item.totalRedeemedUnits += txUnits;
+      item.totalRedeemedAmount += txAmount;
+
+      // Reduce invested amount proportionally based on average cost per unit prior to redemption
+      if (item.units > 0) {
+        const avgCost = item.investedAmount / item.units;
+        const costOfRedeemed = Math.min(item.investedAmount, txUnits * avgCost);
+        item.investedAmount = Math.max(0, item.investedAmount - costOfRedeemed);
+        item.units = Math.max(0, item.units - txUnits);
+      } else {
+        item.units = Math.max(0, item.units - txUnits);
+      }
     }
   }
 
@@ -351,16 +415,50 @@ export function computePortfolioHoldings(
   let totalInvestedAmount = 0;
   let totalDayGain = 0;
   const holdings: PortfolioHolding[] = [];
-
   const allCashflowsForPortfolio: { date: Date; amount: number }[] = [];
 
   schemeMap.forEach((val) => {
-    if (val.units <= 0.0001 && val.investedAmount <= 0) return;
+    // Exact net units validation
+    const netUnits = Math.max(0, val.totalPurchasedUnits - val.totalRedeemedUnits);
+    if (netUnits <= 0.0001) {
+      val.units = 0;
+      val.investedAmount = 0;
+    } else {
+      val.units = Math.round(netUnits * 1000) / 1000;
+      // If investedAmount became 0 or mismatched due to rounding, reconstruct proportional remaining cost
+      if (val.investedAmount <= 0 && val.totalPurchasedUnits > 0) {
+        const avgCost = val.totalPurchasedAmount / val.totalPurchasedUnits;
+        val.investedAmount = val.units * avgCost;
+      }
+    }
+
+    // Accumulate cashflows for portfolio level XIRR (even if fully redeemed)
+    val.transactions.forEach(tx => {
+      const txDate = new Date(tx.date);
+      const txTypeUpper = (tx.type || '').toUpperCase();
+      const isRedemption = 
+        txTypeUpper === 'REDEMPTION' || 
+        txTypeUpper === 'SWITCH_OUT' || 
+        txTypeUpper === 'SWP' || 
+        txTypeUpper.includes('REDEEM') || 
+        txTypeUpper.includes('SELL');
+
+      if (isRedemption) {
+        allCashflowsForPortfolio.push({ date: txDate, amount: Math.abs(tx.amount) });
+      } else {
+        allCashflowsForPortfolio.push({ date: txDate, amount: -Math.abs(tx.amount) });
+      }
+    });
+
+    // If holding is fully closed/liquidated (0 units and 0 invested), omit from active holdings table
+    if (val.units <= 0.0001 && val.investedAmount <= 0) {
+      return;
+    }
 
     const sortedTxsDesc = [...val.transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const latestTxNav = sortedTxsDesc[0]?.nav || 85.0;
 
-    // 1. Look up directly by schemeCode
+    // 1. Look up directly by schemeCode in catalog
     let schemeMeta: MutualFundScheme | undefined = schemeCatalog[val.schemeCode];
 
     // 2. If not found, look up in catalog by normalized schemeName
@@ -386,13 +484,17 @@ export function computePortfolioHoldings(
         defaultCurrentNav = 91.1767;
         defaultNavDate = '2026-08-28';
         default1D = 0.54;
+      } else if (lower.includes('axis') && (lower.includes('elss') || lower.includes('tax saver') || lower.includes('long term'))) {
+        defaultCurrentNav = 112.9;
+        defaultNavDate = '2026-08-28';
+        default1D = 0.42;
       }
 
       schemeMeta = {
         schemeCode: val.schemeCode,
         schemeName: cleanName,
-        fundHouse: lower.includes('parag parikh') ? 'PPFAS Mutual Fund' : 'Direct Mutual Fund',
-        category: lower.includes('small') ? 'Equity - Small Cap' : lower.includes('mid') ? 'Equity - Mid Cap' : 'Equity - Flexi Cap',
+        fundHouse: lower.includes('parag parikh') ? 'PPFAS Mutual Fund' : lower.includes('axis') ? 'Axis Mutual Fund' : 'Direct Mutual Fund',
+        category: lower.includes('elss') || lower.includes('tax') ? 'Equity - ELSS' : lower.includes('small') ? 'Equity - Small Cap' : lower.includes('mid') ? 'Equity - Mid Cap' : 'Equity - Flexi Cap',
         currentNav: defaultCurrentNav,
         navDate: defaultNavDate,
         navChange1D: default1D,
@@ -414,16 +516,22 @@ export function computePortfolioHoldings(
     const dayGain = currentValue * (nav1DPercent / 100);
     const dayGainPercentage = nav1DPercent;
 
-    // Calculate Scheme XIRR
+    // Calculate Scheme-level XIRR
     const schemeCashflows: { date: Date; amount: number }[] = [];
     val.transactions.forEach(tx => {
       const txDate = new Date(tx.date);
-      if (tx.type === 'SIP' || tx.type === 'LUMPSUM' || tx.type === 'SWITCH_IN' || tx.type === 'DIVIDEND_REINVEST') {
-        schemeCashflows.push({ date: txDate, amount: -Math.abs(tx.amount) });
-        allCashflowsForPortfolio.push({ date: txDate, amount: -Math.abs(tx.amount) });
-      } else if (tx.type === 'REDEMPTION' || tx.type === 'SWITCH_OUT') {
+      const txTypeUpper = (tx.type || '').toUpperCase();
+      const isRedemption = 
+        txTypeUpper === 'REDEMPTION' || 
+        txTypeUpper === 'SWITCH_OUT' || 
+        txTypeUpper === 'SWP' || 
+        txTypeUpper.includes('REDEEM') || 
+        txTypeUpper.includes('SELL');
+
+      if (isRedemption) {
         schemeCashflows.push({ date: txDate, amount: Math.abs(tx.amount) });
-        allCashflowsForPortfolio.push({ date: txDate, amount: Math.abs(tx.amount) });
+      } else {
+        schemeCashflows.push({ date: txDate, amount: -Math.abs(tx.amount) });
       }
     });
 
@@ -625,7 +733,19 @@ export const SCHEME_STOCK_PORTFOLIOS: Record<string, { stock: string; ticker: st
     { stock: 'State Bank of India', ticker: 'SBIN', sector: 'Financial Services', weight: 3.5 },
     { stock: 'ITC Ltd', ticker: 'ITC', sector: 'FMCG', weight: 3.2 }
   ],
-  '120503': [ // Quant Small Cap
+  '120503': [ // Axis ELSS - Tax Saver Fund (Direct Plan)
+    { stock: 'Axis Bank Ltd', ticker: 'AXISBANK', sector: 'Financial Services', weight: 8.5 },
+    { stock: 'ICICI Bank Ltd', ticker: 'ICICIBANK', sector: 'Financial Services', weight: 7.8 },
+    { stock: 'Avenue Supermarts Ltd (DMart)', ticker: 'DMART', sector: 'Consumer Services', weight: 6.9 },
+    { stock: 'Bajaj Finance Ltd', ticker: 'BAJFINANCE', sector: 'Financial Services', weight: 6.2 },
+    { stock: 'Tata Consultancy Services', ticker: 'TCS', sector: 'Technology', weight: 5.6 },
+    { stock: 'HDFC Bank Ltd', ticker: 'HDFCBANK', sector: 'Financial Services', weight: 5.1 },
+    { stock: 'Infosys Ltd', ticker: 'INFY', sector: 'Technology', weight: 4.5 },
+    { stock: 'Nestle India Ltd', ticker: 'NESTLEIND', sector: 'FMCG', weight: 4.1 },
+    { stock: 'Pidilite Industries Ltd', ticker: 'PIDILITIND', sector: 'Chemicals', weight: 3.8 },
+    { stock: 'Torrent Power Ltd', ticker: 'TORNTPOWER', sector: 'Utilities', weight: 3.4 }
+  ],
+  '120828': [ // Quant Small Cap Fund
     { stock: 'Reliance Industries Ltd', ticker: 'RELIANCE', sector: 'Energy', weight: 7.2 },
     { stock: 'Jio Financial Services', ticker: 'JIOFIN', sector: 'Financial Services', weight: 5.4 },
     { stock: 'Bikaji Foods International', ticker: 'BIKAJI', sector: 'FMCG', weight: 4.8 },

@@ -52,6 +52,40 @@ export const KNOWN_ISIN_MAP: Record<string, {
   planType: 'Direct' | 'Regular';
   optionType: 'Growth' | 'IDCW';
 }> = {
+  // Motilal Oswal Midcap Fund
+  'INF247L01445': { schemeCode: '127042', schemeName: 'Motilal Oswal Midcap Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Equity - Mid Cap', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01437': { schemeCode: '127041', schemeName: 'Motilal Oswal Midcap Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Equity - Mid Cap', planType: 'Regular', optionType: 'Growth' },
+  'INF247L01429': { schemeCode: '127040', schemeName: 'Motilal Oswal Midcap Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Equity - Mid Cap', planType: 'Direct', optionType: 'IDCW' },
+  'INF247L01411': { schemeCode: '127039', schemeName: 'Motilal Oswal Midcap Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Equity - Mid Cap', planType: 'Regular', optionType: 'IDCW' },
+
+  // Motilal Oswal Large and Midcap Fund
+  'INF247L01569': { schemeCode: '146985', schemeName: 'Motilal Oswal Large and Midcap Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Equity - Large & Mid Cap', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01551': { schemeCode: '146984', schemeName: 'Motilal Oswal Large and Midcap Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Equity - Large & Mid Cap', planType: 'Regular', optionType: 'Growth' },
+
+  // Motilal Oswal Flexi Cap Fund
+  'INF247L01064': { schemeCode: '124973', schemeName: 'Motilal Oswal Flexi Cap Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Equity - Flexi Cap', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01056': { schemeCode: '124972', schemeName: 'Motilal Oswal Flexi Cap Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Equity - Flexi Cap', planType: 'Regular', optionType: 'Growth' },
+
+  // Motilal Oswal Focused Fund
+  'INF247L01288': { schemeCode: '118251', schemeName: 'Motilal Oswal Focused Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Equity - Large Cap', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01270': { schemeCode: '118250', schemeName: 'Motilal Oswal Focused Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Equity - Large Cap', planType: 'Regular', optionType: 'Growth' },
+
+  // Motilal Oswal Small Cap Fund
+  'INF247L01CQ1': { schemeCode: '151122', schemeName: 'Motilal Oswal Small Cap Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Equity - Small Cap', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01CP3': { schemeCode: '151121', schemeName: 'Motilal Oswal Small Cap Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Equity - Small Cap', planType: 'Regular', optionType: 'Growth' },
+
+  // Motilal Oswal Nifty Midcap 150 Index Fund
+  'INF247L01999': { schemeCode: '147573', schemeName: 'Motilal Oswal Nifty Midcap 150 Index Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01981': { schemeCode: '147572', schemeName: 'Motilal Oswal Nifty Midcap 150 Index Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Regular', optionType: 'Growth' },
+
+  // Motilal Oswal Nifty Smallcap 250 Index Fund
+  'INF247L01973': { schemeCode: '147571', schemeName: 'Motilal Oswal Nifty Smallcap 250 Index Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01965': { schemeCode: '147570', schemeName: 'Motilal Oswal Nifty Smallcap 250 Index Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Regular', optionType: 'Growth' },
+
+  // Motilal Oswal Nifty 500 Index Fund
+  'INF247L01957': { schemeCode: '147569', schemeName: 'Motilal Oswal Nifty 500 Index Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Direct', optionType: 'Growth' },
+  'INF247L01940': { schemeCode: '147568', schemeName: 'Motilal Oswal Nifty 500 Index Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Regular', optionType: 'Growth' },
+
   // Motilal Oswal Nasdaq 100 Fund of Fund (FoF)
   'INF247L01718': { schemeCode: '145552', schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Direct', optionType: 'Growth' },
   'INF247L01031': { schemeCode: '145552', schemeName: 'Motilal Oswal Nasdaq 100 Fund of Fund', fundHouse: 'Motilal Oswal Mutual Fund', category: 'Index Fund', planType: 'Direct', optionType: 'Growth' },
@@ -126,6 +160,97 @@ export const KNOWN_SCHEMES_MAP: Record<string, {
   navChange1D: number;
   isin: string;
 }> = {
+  // Motilal Oswal Midcap Fund (Direct - Growth)
+  '127042': {
+    schemeCode: '127042',
+    schemeName: 'Motilal Oswal Midcap Fund',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Mid Cap',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 123.4405,
+    navDate: '2026-08-31',
+    navChange1D: 0.62,
+    isin: 'INF247L01445'
+  },
+  // Motilal Oswal Midcap Fund (Regular - Growth)
+  '127041': {
+    schemeCode: '127041',
+    schemeName: 'Motilal Oswal Midcap Fund',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Mid Cap',
+    planType: 'Regular',
+    optionType: 'Growth',
+    currentNav: 110.2012,
+    navDate: '2026-08-31',
+    navChange1D: 0.60,
+    isin: 'INF247L01437'
+  },
+  // Motilal Oswal Large and Midcap Fund (Direct - Growth)
+  '146985': {
+    schemeCode: '146985',
+    schemeName: 'Motilal Oswal Large and Midcap Fund',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Large & Mid Cap',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 38.5021,
+    navDate: '2026-08-31',
+    navChange1D: 0.45,
+    isin: 'INF247L01569'
+  },
+  // Motilal Oswal Flexi Cap Fund (Direct - Growth)
+  '124973': {
+    schemeCode: '124973',
+    schemeName: 'Motilal Oswal Flexi Cap Fund',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Flexi Cap',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 58.4015,
+    navDate: '2026-08-31',
+    navChange1D: 0.40,
+    isin: 'INF247L01064'
+  },
+  // Motilal Oswal Focused Fund (Direct - Growth)
+  '118251': {
+    schemeCode: '118251',
+    schemeName: 'Motilal Oswal Focused Fund',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Large Cap',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 48.9032,
+    navDate: '2026-08-31',
+    navChange1D: 0.35,
+    isin: 'INF247L01288'
+  },
+  // Motilal Oswal Small Cap Fund (Direct - Growth)
+  '151122': {
+    schemeCode: '151122',
+    schemeName: 'Motilal Oswal Small Cap Fund',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Equity - Small Cap',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 16.8045,
+    navDate: '2026-08-31',
+    navChange1D: 0.70,
+    isin: 'INF247L01CQ1'
+  },
+  // Motilal Oswal Nifty Midcap 150 Index Fund (Direct - Growth)
+  '147573': {
+    schemeCode: '147573',
+    schemeName: 'Motilal Oswal Nifty Midcap 150 Index Fund',
+    fundHouse: 'Motilal Oswal Mutual Fund',
+    category: 'Index Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 36.2514,
+    navDate: '2026-08-31',
+    navChange1D: 0.50,
+    isin: 'INF247L01999'
+  },
   '122639': {
     schemeCode: '122639',
     schemeName: 'Parag Parikh Flexi Cap Fund',
@@ -822,19 +947,59 @@ export async function resolveSchemeLiveDetails(
         if (fofFiltered.length > 0) candidates = fofFiltered;
       }
 
-      let bestMatch = candidates[0];
-      for (const res of candidates) {
-        const rLower = res.schemeName.toLowerCase();
-        const isResDirect = rLower.includes('direct') || rLower.includes('- dir') || rLower.includes('(dir)');
-        const isResGrowth = rLower.includes('growth') || (!rLower.includes('idcw') && !rLower.includes('dividend'));
+      // Compute match score for each candidate to avoid picking index funds or ETFs when searching active funds
+      const queryWords = cleanName.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+      const isExplicitIndex = cleanLower.includes('index') || cleanLower.includes('nifty') || cleanLower.includes('sensex') || cleanLower.includes('150') || cleanLower.includes('250') || cleanLower.includes('500');
+      const isExplicitEtf = cleanLower.includes('etf');
+      const isExplicitFof = cleanLower.includes('fund of fund') || cleanLower.includes('fof');
 
-        if (wantsDirect === isResDirect && wantsGrowth === isResGrowth) {
-          bestMatch = res;
-          break;
-        } else if (wantsDirect === isResDirect) {
-          bestMatch = res;
+      const scoredCandidates = candidates.map(c => {
+        const cClean = cleanFundDisplayName(c.schemeName);
+        const cLower = c.schemeName.toLowerCase();
+        const cCleanLower = cClean.toLowerCase();
+        let score = 0;
+
+        // Exact clean name match
+        if (cCleanLower === cleanLower) {
+          score += 10000;
         }
-      }
+
+        // Word overlap
+        const cWords = cCleanLower.replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+        queryWords.forEach(qw => {
+          if (cWords.includes(qw)) score += 100;
+        });
+
+        // Penalize Index / Nifty / Sensex / 150 / 250 / 500 if query was NOT looking for index fund
+        const cHasIndex = cLower.includes('index') || cLower.includes('nifty') || cLower.includes('sensex') || cLower.includes('150') || cLower.includes('250') || cLower.includes('500');
+        if (cHasIndex && !isExplicitIndex) {
+          score -= 3000;
+        }
+
+        // Penalize ETF if query was NOT looking for ETF
+        const cHasEtf = cLower.includes('etf');
+        if (cHasEtf && !isExplicitEtf) {
+          score -= 3000;
+        }
+
+        // Penalize FoF if query was NOT looking for FoF
+        const cHasFof = cLower.includes('fund of fund') || cLower.includes('fof');
+        if (cHasFof && !isExplicitFof) {
+          score -= 2000;
+        }
+
+        // Plan match
+        const isResDirect = cLower.includes('direct') || cLower.includes('- dir') || cLower.includes('(dir)');
+        const isResGrowth = cLower.includes('growth') || (!cLower.includes('idcw') && !cLower.includes('dividend'));
+
+        if (wantsDirect === isResDirect) score += 500;
+        if (wantsGrowth === isResGrowth) score += 300;
+
+        return { res: c, score };
+      });
+
+      scoredCandidates.sort((a, b) => b.score - a.score);
+      const bestMatch = scoredCandidates[0].res;
 
       const detail = await fetchSchemeNavDetails(String(bestMatch.schemeCode), forceRefresh);
       if (detail && detail.data && detail.data.length > 0) {

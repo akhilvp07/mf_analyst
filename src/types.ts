@@ -2,7 +2,7 @@ export interface MutualFundScheme {
   schemeCode: string;
   schemeName: string;
   fundHouse: string;
-  category: 'Equity - Flexi Cap' | 'Equity - Large Cap' | 'Equity - Mid Cap' | 'Equity - Small Cap' | 'Debt - Liquid' | 'Hybrid - Aggressive' | 'Debt - Short Duration' | 'Equity - ELSS' | 'Index Fund';
+  category: 'Equity - Flexi Cap' | 'Equity - Large Cap' | 'Equity - Mid Cap' | 'Equity - Small Cap' | 'Equity - Large & Mid Cap' | 'Debt - Liquid' | 'Hybrid - Aggressive' | 'Debt - Short Duration' | 'Equity - ELSS' | 'Index Fund';
   planType?: 'Direct' | 'Regular';
   optionType?: 'Growth' | 'IDCW';
   currentNav: number;
