@@ -9,65 +9,38 @@ import {
   CartesianGrid, 
   Legend 
 } from 'recharts';
-import { PortfolioHolding, PortfolioSummary } from '../types';
-import { formatINR, lttbDownsample } from '../utils/financialCalculations';
-import { Activity, Zap, Check } from 'lucide-react';
+import { PortfolioHolding, PortfolioSummary, TransactionRecord } from '../types';
+import { 
+  formatINR, 
+  lttbDownsample, 
+  computeHistoricalPortfolioGrowth, 
+  GrowthDataPoint 
+} from '../utils/financialCalculations';
+import { Zap, TrendingUp, ArrowUpRight, ArrowDownRight, Award } from 'lucide-react';
 
 interface PortfolioGrowthChartProps {
   holdings: PortfolioHolding[];
   summary: PortfolioSummary;
+  transactions?: TransactionRecord[];
 }
 
 type Timeframe = '1M' | '6M' | '1Y' | '3Y' | 'ALL';
 
-export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({ holdings, summary }) => {
+export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({ 
+  holdings, 
+  summary, 
+  transactions = [] 
+}) => {
   const [timeframe, setTimeframe] = useState<Timeframe>('3Y');
   const [showBenchmark, setShowBenchmark] = useState<boolean>(true);
   const [useLttb, setUseLttb] = useState<boolean>(true);
 
-  // Generate historical daily portfolio growth simulation series
+  // Compute physically exact historical portfolio growth time series
   const rawChartData = useMemo(() => {
-    const pointsCount = timeframe === '1M' ? 30 : timeframe === '6M' ? 180 : timeframe === '1Y' ? 365 : timeframe === '3Y' ? 1095 : 1825;
-    const data: { x: number; date: string; netWorth: number; invested: number; nifty50: number }[] = [];
-    
-    const today = new Date();
-    const finalValue = summary.totalCurrentValue || 1200000;
-    const finalInvested = summary.totalInvestedAmount || 850000;
+    return computeHistoricalPortfolioGrowth(transactions, holdings, summary, timeframe);
+  }, [transactions, holdings, summary, timeframe]);
 
-    const startInvestedRatio = timeframe === '1M' ? 0.95 : timeframe === '6M' ? 0.75 : timeframe === '1Y' ? 0.60 : 0.25;
-    const startValueRatio = timeframe === '1M' ? 0.94 : timeframe === '6M' ? 0.68 : timeframe === '1Y' ? 0.50 : 0.20;
-
-    let currentInvested = finalInvested * startInvestedRatio;
-    let currentValue = finalValue * startValueRatio;
-    let currentNifty = currentValue * 0.92;
-
-    const investedIncrement = (finalInvested - currentInvested) / pointsCount;
-    const valueGrowthFactor = Math.pow(finalValue / currentValue, 1 / pointsCount);
-    const niftyGrowthFactor = Math.pow((finalValue * 0.88) / currentNifty, 1 / pointsCount);
-
-    for (let i = 0; i <= pointsCount; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - (pointsCount - i));
-
-      // Realistic market wobble
-      const noise = (Math.sin(i * 0.15) * 0.008) + ((i % 7 === 0 ? 0.005 : -0.002));
-      currentValue = (i === pointsCount) ? finalValue : currentValue * (valueGrowthFactor + noise);
-      currentNifty = (i === pointsCount) ? finalValue * 0.88 : currentNifty * (niftyGrowthFactor + noise * 0.8);
-      currentInvested += investedIncrement;
-
-      data.push({
-        x: i,
-        date: d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: timeframe === 'ALL' || timeframe === '3Y' ? '2-digit' : undefined }),
-        netWorth: Math.round(currentValue),
-        invested: Math.round(Math.min(finalInvested, currentInvested)),
-        nifty50: Math.round(currentNifty)
-      });
-    }
-
-    return data;
-  }, [timeframe, summary.totalCurrentValue, summary.totalInvestedAmount]);
-
-  // Apply LTTB downsampling for high-speed rendering
+  // Apply LTTB downsampling for high-speed 60fps rendering if large dataset
   const chartData = useMemo(() => {
     if (!useLttb || rawChartData.length < 80) return rawChartData;
     const targetPoints = 75; // Optimal for 60fps DOM animation
@@ -77,8 +50,41 @@ export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({ hold
     const sampled = lttbDownsample(netWorthPoints, targetPoints);
     const sampledXSet = new Set(sampled.map(s => s.x));
 
+    // Ensure first and last points are always included
+    sampledXSet.add(rawChartData[0]?.x);
+    sampledXSet.add(rawChartData[rawChartData.length - 1]?.x);
+
     return rawChartData.filter(d => sampledXSet.has(d.x));
   }, [rawChartData, useLttb]);
+
+  // Period performance metrics
+  const periodMetrics = useMemo(() => {
+    if (!chartData || chartData.length < 2) {
+      return {
+        portfolioGain: 0,
+        portfolioGainPct: 0,
+        niftyGainPct: 0,
+        capitalAdded: 0,
+        alpha: 0
+      };
+    }
+    const start = chartData[0];
+    const end = chartData[chartData.length - 1];
+
+    const portfolioGain = end.netWorth - start.netWorth;
+    const portfolioGainPct = start.netWorth > 0 ? ((end.netWorth - start.netWorth) / start.netWorth) * 100 : 0;
+    const niftyGainPct = start.nifty50 > 0 ? ((end.nifty50 - start.nifty50) / start.nifty50) * 100 : 0;
+    const capitalAdded = end.invested - start.invested;
+    const alpha = portfolioGainPct - niftyGainPct;
+
+    return {
+      portfolioGain,
+      portfolioGainPct,
+      niftyGainPct,
+      capitalAdded,
+      alpha
+    };
+  }, [chartData]);
 
   return (
     <div className="space-y-4">
@@ -132,6 +138,35 @@ export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({ hold
         </div>
       </div>
 
+      {/* Period Quick Insight Badges */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+        <div className="bg-neutral-800/40 border border-neutral-800 rounded-xl px-3 py-2 text-xs">
+          <span className="text-neutral-400 block text-[11px]">Period Growth</span>
+          <span className={`font-semibold font-mono ${periodMetrics.portfolioGain >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {periodMetrics.portfolioGain >= 0 ? '+' : ''}{formatINR(periodMetrics.portfolioGain)} ({periodMetrics.portfolioGainPct >= 0 ? '+' : ''}{periodMetrics.portfolioGainPct.toFixed(1)}%)
+          </span>
+        </div>
+        <div className="bg-neutral-800/40 border border-neutral-800 rounded-xl px-3 py-2 text-xs">
+          <span className="text-neutral-400 block text-[11px]">Capital Added ({timeframe})</span>
+          <span className="font-semibold text-neutral-200 font-mono">
+            +{formatINR(Math.max(0, periodMetrics.capitalAdded))}
+          </span>
+        </div>
+        <div className="bg-neutral-800/40 border border-neutral-800 rounded-xl px-3 py-2 text-xs">
+          <span className="text-neutral-400 block text-[11px]">Nifty 50 Return</span>
+          <span className={`font-semibold font-mono ${periodMetrics.niftyGainPct >= 0 ? 'text-teal-400' : 'text-rose-400'}`}>
+            {periodMetrics.niftyGainPct >= 0 ? '+' : ''}{periodMetrics.niftyGainPct.toFixed(1)}%
+          </span>
+        </div>
+        <div className="bg-neutral-800/40 border border-neutral-800 rounded-xl px-3 py-2 text-xs">
+          <span className="text-neutral-400 block text-[11px]">Period Alpha vs Index</span>
+          <span className={`font-semibold font-mono flex items-center gap-1 ${periodMetrics.alpha >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+            <Award className="w-3 h-3 shrink-0" />
+            {periodMetrics.alpha >= 0 ? '+' : ''}{periodMetrics.alpha.toFixed(1)}%
+          </span>
+        </div>
+      </div>
+
       {/* Recharts Area Chart */}
       <div className="h-72 sm:h-80 w-full mt-2">
         <ResponsiveContainer width="100%" height="100%">
@@ -169,15 +204,21 @@ export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({ hold
             <Tooltip
               content={({ active, payload, label }) => {
                 if (active && payload && payload.length) {
-                  const netWorth = payload.find(p => p.dataKey === 'netWorth')?.value as number || 0;
-                  const invested = payload.find(p => p.dataKey === 'invested')?.value as number || 0;
+                  const netWorth = (payload.find(p => p.dataKey === 'netWorth')?.value as number) || 0;
+                  const invested = (payload.find(p => p.dataKey === 'invested')?.value as number) || 0;
                   const nifty = payload.find(p => p.dataKey === 'nifty50')?.value as number;
+                  const pointData = payload[0]?.payload as GrowthDataPoint;
+                  const displayDate = pointData?.fullDate || label;
                   const profit = netWorth - invested;
                   const roi = invested > 0 ? (profit / invested) * 100 : 0;
+                  const alphaVsNiftyVal = (showBenchmark && nifty && nifty > 0) ? (netWorth - nifty) : null;
 
                   return (
-                    <div className="bg-neutral-900 border border-neutral-700 rounded-xl p-3 shadow-xl text-xs space-y-1.5">
-                      <div className="font-semibold text-neutral-300 border-b border-neutral-800 pb-1">{label}</div>
+                    <div className="bg-neutral-900 border border-neutral-700 rounded-xl p-3 shadow-xl text-xs space-y-1.5 min-w-[220px]">
+                      <div className="font-semibold text-neutral-200 border-b border-neutral-800 pb-1 flex items-center justify-between">
+                        <span>{displayDate}</span>
+                        <span className="text-[10px] text-neutral-400 font-normal">Historical Valuation</span>
+                      </div>
                       <div className="flex items-center justify-between gap-4 text-emerald-400">
                         <span>Portfolio Net Worth:</span>
                         <strong className="font-mono">{formatINR(netWorth)}</strong>
@@ -188,12 +229,22 @@ export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({ hold
                       </div>
                       <div className="flex items-center justify-between gap-4 text-emerald-300 font-medium">
                         <span>Unrealized Gain:</span>
-                        <strong className="font-mono">+{formatINR(profit)} (+{roi.toFixed(1)}%)</strong>
+                        <strong className="font-mono">{profit >= 0 ? '+' : ''}{formatINR(profit)} ({roi >= 0 ? '+' : ''}{roi.toFixed(1)}%)</strong>
                       </div>
-                      {showBenchmark && nifty && (
-                        <div className="flex items-center justify-between gap-4 text-teal-400 border-t border-neutral-800 pt-1">
-                          <span>Nifty 50 Equivalent:</span>
-                          <strong className="font-mono">{formatINR(nifty)}</strong>
+                      {showBenchmark && nifty !== undefined && nifty > 0 && (
+                        <div className="border-t border-neutral-800 pt-1.5 space-y-1 text-teal-400">
+                          <div className="flex items-center justify-between gap-4">
+                            <span>Nifty 50 Equivalent:</span>
+                            <strong className="font-mono">{formatINR(nifty)}</strong>
+                          </div>
+                          {alphaVsNiftyVal !== null && (
+                            <div className="flex items-center justify-between gap-4 text-[11px] text-neutral-300">
+                              <span>Outperformance:</span>
+                              <strong className={`font-mono ${alphaVsNiftyVal >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                {alphaVsNiftyVal >= 0 ? '+' : ''}{formatINR(alphaVsNiftyVal)}
+                              </strong>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

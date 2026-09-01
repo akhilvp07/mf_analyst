@@ -17,7 +17,7 @@ import {
   saveAllSchemes
 } from './services/portfolioStorage';
 import { syncSchemesForHoldings, SchemeSyncTarget } from './services/mfApi';
-import { computePortfolioHoldings } from './utils/financialCalculations';
+import { computePortfolioHoldings, mergeTransactions } from './utils/financialCalculations';
 import { loadAmfiNavDatabase } from './services/amfiNavService';
 
 export default function App() {
@@ -248,13 +248,28 @@ export default function App() {
     }
   }, [schemes]);
 
-  // Import transactions from CAS statement
-  const handleImportTransactions = useCallback((imported: TransactionRecord[], replaceExisting: boolean, newSchemes?: Record<string, MutualFundScheme>) => {
+  // Import transactions from CAS statement with smart deduplication merge
+  const handleImportTransactions = useCallback((imported: TransactionRecord[], replaceExisting: boolean = false, newSchemes?: Record<string, MutualFundScheme>) => {
+    let stats = { added: imported.length, duplicates: 0, total: imported.length };
+
     setTransactions(prev => {
-      const updated = replaceExisting ? imported : [...imported, ...prev];
+      let updated: TransactionRecord[];
+      if (replaceExisting) {
+        updated = imported;
+        stats = { added: imported.length, duplicates: 0, total: imported.length };
+      } else {
+        const mergeRes = mergeTransactions(prev, imported);
+        updated = mergeRes.mergedTransactions;
+        stats = {
+          added: mergeRes.addedCount,
+          duplicates: mergeRes.duplicateCount,
+          total: mergeRes.totalCount
+        };
+      }
       saveStoredTransactions(updated);
       return updated;
     });
+
     if (newSchemes && Object.keys(newSchemes).length > 0) {
       setSchemes(prev => {
         const updated = { ...prev, ...newSchemes };
@@ -262,6 +277,17 @@ export default function App() {
         return updated;
       });
     }
+
+    setSyncToast({
+      message: replaceExisting
+        ? `Portfolio replaced with ${imported.length} transactions.`
+        : stats.duplicates > 0
+        ? `Merged successfully! Added ${stats.added} new transactions (${stats.duplicates} duplicates safely skipped). Total: ${stats.total}`
+        : `Merged successfully! Added ${stats.added} new transactions. Total: ${stats.total}`,
+      type: 'success'
+    });
+    setTimeout(() => setSyncToast(null), 4500);
+
     setActiveTab('overview');
     setTimeout(() => {
       handleSyncAllNavs();
@@ -310,6 +336,7 @@ export default function App() {
           <PortfolioOverview
             summary={summary}
             holdings={holdings}
+            transactions={transactions}
             onNavigateTab={setActiveTab}
             onOpenImport={() => setActiveTab('import')}
           />

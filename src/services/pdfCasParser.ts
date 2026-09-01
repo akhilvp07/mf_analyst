@@ -128,16 +128,39 @@ const INVALID_INVESTOR_WORDS = [
   'w.e.f', 'with effect', 'changed', 'change', 'been', 'effective', 'dated', 'dear investor', 'cams',
   'kfin', 'kfintech', 'karvy', 'cdsl', 'nsdl', 'registrar', 'rta', 'services', 'pvt', 'ltd', 'limited',
   'holding', 'details', 'report', 'page', 'date', 'period', 'nominee', 'bank', 'ifsc', 'neft', 'rtgs',
-  'micr', 'branch', 'kyc', 'pan', 'mobile', 'email', 'tel', 'phone', 'axis', 'hdfc', 'icici', 'sbi',
-  'kotak', 'nippon', 'uti', 'mirae', 'tata', 'parag', 'parikh', 'aditya', 'birla', 'dsp', 'franklin',
-  'motilal', 'oswal', 'quant', 'canara', 'robeco', 'bandhan', 'invesco', 'hsbc', 'sundaram', 'edelweiss',
-  'pgim', 'navi', 'groww', 'zerodha', 'quantum', 'ppfas', 'templeton', 'financial', 'advisor', 'distributor',
+  'micr', 'branch', 'kyc', 'pan', 'mobile', 'email', 'tel', 'phone', 'advisor', 'distributor',
   'sub broker', 'arn', 'euin', 'ria', 'ina', 'crn', 'address', 'pin', 'pincode', 'india', 'city', 'state',
-  'road', 'street', 'nagar', 'cross', 'floor', 'flat', 'house', 'building', 'apartment', 'residence',
-  'colony', 'dist', 'district', 'near', 'opp', 'opposite', 'capital', 'gain', 'gains', 'valuation', 'redemption',
-  'purchase', 'switch', 'inflow', 'outflow', 'opening', 'closing', 'total', 'grand', 'amount', 'rupees', 'inr',
-  'long term', 'small cap', 'mid cap', 'large cap', 'flexi cap', 'index fund', 'etf', 'demat', 'notice',
-  'has', 'have', 'had', 'been', 'were', 'was', 'being', 'having', 'which', 'that', 'this', 'these', 'those'
+  'capital', 'gain', 'gains', 'redemption', 'purchase', 'switch', 'inflow', 'outflow', 'opening', 'closing',
+  'total', 'grand', 'amount', 'rupees', 'inr', 'index fund', 'etf', 'demat', 'notice'
+];
+
+/**
+ * Address, place, town, building, and district keywords to prevent geographic names from being identified as investors
+ */
+const ADDRESS_KEYWORDS = [
+  'po', 'p.o', 'p.o.', 'post office', 'vill', 'village', 'taluk', 'dist', 'district',
+  'pin', 'pincode', 'road', 'street', 'st', 'rd', 'cross', 'lane', 'marg', 'nagar',
+  'floor', 'flat', 'house', 'bldg', 'building', 'apartment', 'apt', 'residence',
+  'colony', 'enclave', 'society', 'villa', 'bhavan', 'mandir', 'near', 'opp', 'opposite',
+  'kerala', 'tamil nadu', 'karnataka', 'maharashtra', 'gujarat', 'delhi', 'telangana',
+  'andhra', 'west bengal', 'rajasthan', 'uttar pradesh', 'madhya pradesh', 'punjab',
+  'haryana', 'bihar', 'odisha', 'thiruvananthapuram', 'trivandrum', 'ernakulam', 'kochi',
+  'kozhikode', 'calicut', 'thrissur', 'kollam', 'alappuzha', 'palakkad', 'kannur', 'kottayam',
+  'chennai', 'madras', 'bengaluru', 'bangalore', 'mumbai', 'bombay', 'pune', 'hyderabad',
+  'kolkata', 'calcutta', 'ahmedabad', 'surat', 'jaipur', 'lucknow', 'kanpur', 'nagpur',
+  'indore', 'thane', 'bhopal', 'visakhapatnam', 'patna', 'vadodara', 'ghaziabad', 'ludhiana',
+  'agra', 'nashik', 'faridabad', 'meerut', 'rajkot', 'varanasi', 'srinagar', 'aurangabad',
+  'dhanbad', 'amritsar', 'navi mumbai', 'allahabad', 'prayagraj', 'ranchi', 'howrah',
+  'coimbatore', 'jabalpur', 'gwalior', 'vijayawada', 'jodhpur', 'madurai', 'raipur', 'kota',
+  'chandigarh', 'guwahati', 'solapur', 'hubli', 'dharwad', 'bareilly', 'moradabad', 'mysore',
+  'mysuru', 'gurgaon', 'gurugram', 'aligarh', 'jalandhar', 'tiruchirappalli', 'bhubaneswar',
+  'salem', 'warangal', 'mira bhayandar', 'bhiwandi', 'saharanpur', 'guntur', 'amravati',
+  'bikaner', 'noida', 'jamshedpur', 'bhilai', 'cuttack', 'firozabad', 'nellore', 'bhavnagar',
+  'dehradun', 'durgapur', 'asansol', 'rourkela', 'nanded', 'kolhapur', 'ajmer', 'akola',
+  'gulbarga', 'kalaburagi', 'jamnagar', 'ujjain', 'loni', 'siliguri', 'jhansi', 'ulhasnagar',
+  'jammu', 'sangli', 'mangalore', 'mangaluru', 'erode', 'belgaum', 'belagavi', 'ambattur',
+  'tirunelveli', 'malegaon', 'gaya', 'jalgaon', 'udaipur', 'maheshtala', 'ambadi', 'perettil',
+  'moongode'
 ];
 
 /**
@@ -151,35 +174,49 @@ export function isValidPersonName(candidate: string): boolean {
     .trim();
 
   // Reasonable length bounds for full person names
-  if (clean.length < 3 || clean.length > 40) return false;
+  if (clean.length < 3 || clean.length > 50) return false;
 
   // Cannot contain numbers or special structural characters
   if (/[\d@#$^*_+=\\/{}[\]|<>~`"%;:?]/.test(clean)) return false;
 
-  const lower = clean.toLowerCase();
+  // Must contain only letters, dots, hyphens, spaces, apostrophes
+  if (!/^[A-Za-z][A-Za-z\s.'-]*$/.test(clean)) return false;
 
-  // Reject if candidate contains any preposition, auxiliary verb, or fund term
-  if (/^(of|in|to|for|from|on|as|by|the|an|a|with|at|under|has|have|had|is|are|been|c)\b/i.test(clean)) {
+  const lower = clean.toLowerCase();
+  const words = lower.split(/\s+/).filter(Boolean);
+
+  if (words.length < 1 || words.length > 5) return false;
+
+  // Reject if candidate contains any preposition or auxiliary verb
+  if (/^(of|in|to|for|from|on|as|by|the|an|a|with|at|under|has|have|had|is|are|been)\b/i.test(clean)) {
     return false;
   }
 
-  // Reject if it contains any mutual fund, disclaimer or administrative keyword
-  for (const word of INVALID_INVESTOR_WORDS) {
-    if (lower.includes(word.toLowerCase())) {
+  // Address keywords check (whole word match)
+  for (const w of words) {
+    if (w === 'po' || w === 'p.o' || w === 'p.o.' || w === 'pin' || w === 'dist') {
       return false;
     }
   }
 
-  // Must contain only letters, dots, hyphens, spaces, apostrophes
-  if (!/^[A-Za-z][A-Za-z\s.'-]*$/.test(clean)) return false;
+  for (const addr of ADDRESS_KEYWORDS) {
+    if (words.includes(addr)) {
+      return false;
+    }
+  }
 
-  // Words count between 1 and 5
-  const words = clean.split(/\s+/).filter(w => w.length > 0);
-  if (words.length < 1 || words.length > 5) return false;
+  // Check invalid investor words with whole word boundaries
+  for (const word of INVALID_INVESTOR_WORDS) {
+    if (word.length >= 3) {
+      const wRegex = new RegExp(`\\b${word}\\b`, 'i');
+      if (wRegex.test(clean)) {
+        return false;
+      }
+    }
+  }
 
-  // Each word should be a reasonable person name token
   for (const w of words) {
-    if (w.length > 20) return false; // Concatenated junk
+    if (w.length > 25) return false; // Concatenated junk
   }
 
   return true;
@@ -204,52 +241,145 @@ export function formatPersonName(rawName: string): string {
 }
 
 /**
- * Extract clean investor name strictly from first page header lines
+ * Extract folio number and optional investor name from a line
  */
-export function extractCleanInvestorName(firstPageLines: string[], allLines: string[], fullText: string): string | undefined {
-  // Labeled regex patterns targeting header metadata lines
-  const labeledRegexes = [
-    /^(?:Investor\s+Name|Name\s+of\s+(?:Sole\s+|First\s+)?Holder|Unit\s*Holder(?:\s+Name)?|Primary\s+Holder|1st\s+Holder|Sole\s+Holder)\s*[:\-]\s*([A-Za-z\s.'-]{3,40})/i,
-    /^Name\s*[:\-]\s*([A-Za-z\s.'-]{3,40})/i,
-    /^Dear\s+(?:Mr\.|Ms\.|Mrs\.|Dr\.|Shri|Smt\.)?\s*([A-Za-z\s.'-]{3,40})(?:,|\n|$)/i,
-    /^Portfolio\s+of\s*[:\-]?\s*(?:Mr\.|Ms\.|Mrs\.|Dr\.|Shri|Smt\.)?\s*([A-Za-z\s.'-]{3,40})(?:,|\n|$)/i
-  ];
+export function extractFolioAndInvestorFromLine(line: string): {
+  folio?: string;
+  investorName?: string;
+} {
+  if (!line || isDisclaimerOrNoticeLine(line)) return {};
+  const trimmed = line.trim();
 
-  // Scan only the top section of Page 1 (first 25 lines)
-  const headerLines = firstPageLines.slice(0, 25);
+  // Pattern 1: Explicit Folio / Account prefix
+  const prefixRegex = /(?:Folio\s*(?:No\.?|Number|\#)?|Account\s*(?:No\.?|Number|\#)?|Folio\s*\/\s*(?:Account|DP\s*ID|Client\s*ID|Check\s*Digit)\s*(?:No\.?)?|Folio\s*-\s*|Account\s*-\s*)\s*[:\-\s]\s*(.+)/i;
+  
+  const m = trimmed.match(prefixRegex);
+  if (m && m[1]) {
+    const remainder = m[1].trim();
 
-  for (let i = 0; i < headerLines.length; i++) {
-    const line = headerLines[i].trim();
-    if (!line || isDisclaimerOrNoticeLine(line)) continue;
+    // Match folio token (alphanumeric, slashes, hyphens) optionally followed by investor name
+    const splitMatch = remainder.match(/^([A-Z0-9\-_]+(?:\s*[\/\-]\s*[A-Z0-9\-_]+)*)(?:\s*[-–—:]\s*|\s{2,}|\s+([A-Za-z].*)|$)/i);
+    
+    if (splitMatch && splitMatch[1]) {
+      const candidateFolio = normalizeFolioNumber(splitMatch[1]);
+      let extractedName: string | undefined;
 
-    // Check if line is an address salutation like "To," or "To"
-    if (/^To\s*[,:]?$/i.test(line) && i + 1 < headerLines.length) {
-      const nextLine = headerLines[i + 1].trim();
-      if (!isDisclaimerOrNoticeLine(nextLine) && isValidPersonName(nextLine)) {
-        return formatPersonName(nextLine);
+      const restPart = splitMatch[2] || remainder.substring(splitMatch[1].length).replace(/^[\s\-–—:]+/, '').trim();
+      if (restPart && isValidPersonName(restPart)) {
+        extractedName = formatPersonName(restPart);
       }
-    }
 
-    // Check labeled line patterns
-    for (const regex of labeledRegexes) {
-      const m = line.match(regex);
-      if (m && m[1]) {
-        const candidate = m[1].trim();
-        if (isValidPersonName(candidate)) {
-          return formatPersonName(candidate);
-        }
-      }
-    }
-
-    // Check standalone line in the very top header (lines 1 to 10)
-    if (i >= 1 && i <= 10 && !line.includes(':') && !line.includes(';') && !line.includes('@')) {
-      if (isValidPersonName(line)) {
-        return formatPersonName(line);
+      if (isValidFolioNumber(candidateFolio)) {
+        return { folio: candidateFolio, investorName: extractedName };
       }
     }
   }
 
-  return undefined;
+  // Pattern 2: Inline Folio keyword inside a line e.g. "(Folio No: 91060243113 / 0)"
+  const inlineMatch = trimmed.match(/\b(?:Folio\s*(?:No\.?|Number|\#)?|Account\s*(?:No\.?|Number|\#)?)\s*[:\-\s]\s*([A-Z0-9\/\-_\s]{2,25})(?:\s*[\),;]|\s+[-–—]\s+|\s{2,}|\s+(?=[A-Za-z]{3,})|$)/i);
+  if (inlineMatch && inlineMatch[1]) {
+    const candidateFolio = normalizeFolioNumber(inlineMatch[1]);
+    if (isValidFolioNumber(candidateFolio)) {
+      return { folio: candidateFolio };
+    }
+  }
+
+  return {};
+}
+
+/**
+ * Extract clean investor name from header (Email ID section) and folio lines across the statement
+ */
+export function extractCleanInvestorName(
+  firstPageLines: string[], 
+  allLines: string[], 
+  fullText: string
+): string | undefined {
+  const candidateScores = new Map<string, number>();
+
+  const addCandidate = (name: string, baseScore: number) => {
+    if (!isValidPersonName(name)) return;
+    const formatted = formatPersonName(name);
+    if (!formatted || formatted.length < 3) return;
+    
+    // Reward full names with 2 or more words (e.g. "Akhil Valsamrithan")
+    const words = formatted.split(/\s+/).filter(Boolean);
+    const score = words.length >= 2 ? baseScore + 10 : baseScore;
+
+    candidateScores.set(formatted, (candidateScores.get(formatted) || 0) + score);
+  };
+
+  // 1. Email ID Header Block (Page 1):
+  // In CAS statements, the Investor Name is immediately below the Email ID field
+  const headerLines = firstPageLines.length > 0 ? firstPageLines.slice(0, 35) : allLines.slice(0, 35);
+  for (let i = 0; i < headerLines.length; i++) {
+    const line = headerLines[i].trim();
+    if (/Email\s*(?:Id|ID)?\s*[:\-]/i.test(line) || /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/i.test(line)) {
+      // Check next 1-3 lines right below Email ID
+      for (let offset = 1; offset <= 3 && i + offset < headerLines.length; offset++) {
+        const nextLine = headerLines[i + offset].trim();
+        if (nextLine && !nextLine.includes(':') && !nextLine.includes('@') && !isDisclaimerOrNoticeLine(nextLine)) {
+          if (isValidPersonName(nextLine)) {
+            addCandidate(nextLine, 35); // Highest priority for line right below Email ID
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Scan all lines for "Folio No:" headers and extract investor name adjacent or below
+  for (let i = 0; i < allLines.length; i++) {
+    const line = allLines[i].trim();
+    if (!line || isDisclaimerOrNoticeLine(line)) continue;
+
+    // Check if line contains Folio header
+    if (/(?:Folio\s*(?:No\.?|Number|\#)?|Account\s*(?:No\.?|Number|\#)?)\s*[:\-\s]/i.test(line)) {
+      const extracted = extractFolioAndInvestorFromLine(line);
+      if (extracted.investorName) {
+        addCandidate(extracted.investorName, 20); // High confidence from Folio No line
+      }
+
+      // Also check the next line right below Folio No
+      if (i + 1 < allLines.length) {
+        const nextLine = allLines[i + 1].trim();
+        if (
+          nextLine && 
+          !isDisclaimerOrNoticeLine(nextLine) && 
+          !isSchemeHeaderLine(nextLine) && 
+          !/^(?:Date|NAV|Units|Amount|Price|Balance|Transaction|Folio|PAN|ISIN|KYC|Bank)/i.test(nextLine)
+        ) {
+          const holderMatch = nextLine.match(/^(?:(?:1st\s+|Primary\s+|Sole\s+)?Holder(?:\s+Name)?|Name|Unit\s*Holder)\s*[:\-]\s*([A-Za-z\s.'-]+)/i);
+          if (holderMatch && holderMatch[1]) {
+            addCandidate(holderMatch[1], 25);
+          } else if (isValidPersonName(nextLine)) {
+            addCandidate(nextLine, 15);
+          }
+        }
+      }
+    }
+
+    // 3. Check explicit labeled header patterns
+    const labeledMatch = line.match(/^(?:Investor\s+Name|Name\s+of\s+(?:Sole\s+|First\s+)?Holder|Unit\s*Holder(?:\s+Name)?|Primary\s+Holder|1st\s+Holder|Sole\s+Holder)\s*[:\-]\s*([A-Za-z\s.'-]{3,40})/i) ||
+                         line.match(/^Dear\s+(?:Mr\.|Ms\.|Mrs\.|Dr\.|Shri|Smt\.)?\s*([A-Za-z\s.'-]{3,40})(?:,|\n|$)/i) ||
+                         line.match(/^Portfolio\s+of\s*[:\-]?\s*(?:Mr\.|Ms\.|Mrs\.|Dr\.|Shri|Smt\.)?\s*([A-Za-z\s.'-]{3,40})(?:,|\n|$)/i);
+    if (labeledMatch && labeledMatch[1]) {
+      addCandidate(labeledMatch[1], 25);
+    }
+  }
+
+  // Pick candidate with highest total score
+  let bestCandidate: string | undefined;
+  let highestScore = 0;
+
+  for (const [candidate, score] of candidateScores.entries()) {
+    if (score > highestScore) {
+      highestScore = score;
+      bestCandidate = candidate;
+    }
+  }
+
+  return bestCandidate;
 }
 
 /**
@@ -827,12 +957,11 @@ export async function parsePdfCasStatement(
         }
       }
 
-      // 2. Detect Folio Number (strict validation: MUST contain digits & not be a stopword like 'with')
-      const folioMatch = line.match(/(?:Folio\s*(?:No|Number|\#)?|Account\s*(?:No|Number|\#)?)\s*[:\-\s]\s*([A-Z0-9\/\-_]+)/i);
-      if (folioMatch && folioMatch[1]) {
-        const candidateFolio = folioMatch[1].trim();
-        if (isValidFolioNumber(candidateFolio)) {
-          currentFolio = candidateFolio;
+      // 2. Detect Folio Number (strict validation & preservation of full folio/sub-folio IDs)
+      if (/(?:Folio\s*(?:No\.?|Number|\#)?|Account\s*(?:No\.?|Number|\#)?)\s*[:\-\s]/i.test(line)) {
+        const extracted = extractFolioAndInvestorFromLine(line);
+        if (extracted.folio && isValidFolioNumber(extracted.folio)) {
+          currentFolio = extracted.folio;
           foliosSet.add(currentFolio);
         }
       }
@@ -1157,10 +1286,21 @@ export async function parsePdfCasStatement(
       };
     });
 
+    // Collect all distinct valid folios across both foliosSet and finalTransactions
+    const allUniqueFolios = new Set<string>();
+    foliosSet.forEach(f => {
+      if (isValidFolioNumber(f)) allUniqueFolios.add(normalizeFolioNumber(f));
+    });
+    finalTransactions.forEach(t => {
+      if (isValidFolioNumber(t.folioNumber)) allUniqueFolios.add(normalizeFolioNumber(t.folioNumber));
+    });
+
+    const totalFolioCount = allUniqueFolios.size || (finalTransactions.length > 0 ? 1 : 0);
+
     return {
       transactions: finalTransactions,
       detectedSchemes: detectedSchemesList,
-      folioCount: foliosSet.size || (finalTransactions.length > 0 ? 1 : 0),
+      folioCount: totalFolioCount,
       investorName,
       pan,
       statementPeriod

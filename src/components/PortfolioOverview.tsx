@@ -16,13 +16,14 @@ import {
   ChevronRight,
   ExternalLink
 } from 'lucide-react';
-import { PortfolioHolding, PortfolioSummary, AssetAllocation, MarketCapAllocation } from '../types';
+import { PortfolioHolding, PortfolioSummary, AssetAllocation, MarketCapAllocation, TransactionRecord } from '../types';
 import { formatINR, computeAssetAllocation, computeMarketCapAllocation } from '../utils/financialCalculations';
 import { PortfolioGrowthChart } from './PortfolioGrowthChart';
 
 interface PortfolioOverviewProps {
   summary: PortfolioSummary;
   holdings: PortfolioHolding[];
+  transactions?: TransactionRecord[];
   onNavigateTab: (tab: any) => void;
   onOpenImport: () => void;
 }
@@ -30,6 +31,7 @@ interface PortfolioOverviewProps {
 export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
   summary,
   holdings,
+  transactions = [],
   onNavigateTab,
   onOpenImport
 }) => {
@@ -145,7 +147,7 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
           </div>
         </div>
 
-        <PortfolioGrowthChart holdings={holdings} summary={summary} />
+        <PortfolioGrowthChart holdings={holdings} summary={summary} transactions={transactions} />
       </div>
 
       {/* Two Columns: Asset Allocation & Top Performing Funds */}

@@ -164,17 +164,41 @@ export function exportTransactionsToCsv(transactions: TransactionRecord[]): stri
 }
 
 /**
- * Parse CAS statements (JSON or CSV format)
+ * Parse CAS statements (JSON or CSV format) with comprehensive format support
  */
-export function parseCasStatement(fileContent: string): { transactions: TransactionRecord[]; detectedSchemes: MutualFundScheme[]; summary: { imported: number; errors: number } } {
+export function parseCasStatement(fileContent: string): { 
+  transactions: TransactionRecord[]; 
+  detectedSchemes: MutualFundScheme[]; 
+  summary: { imported: number; errors: number };
+  statementMeta?: {
+    investorName?: string;
+    pan?: string;
+    folioCount?: number;
+    period?: string;
+  };
+} {
   const resultTxs: TransactionRecord[] = [];
   const detectedSchemes: MutualFundScheme[] = [];
   let idCounter = Date.now();
+  let metaInvestorName: string | undefined;
+  let metaPan: string | undefined;
+  let metaPeriod: string | undefined;
 
   try {
-    // Attempt 1: CAS JSON Format (CAMS / KFintech / MFTracker export)
+    // Attempt 1: CAS JSON Format
     const json = JSON.parse(fileContent);
+
+    if (json.investorName || json.investor_name || json.name || json.investor) {
+      metaInvestorName = json.investorName || json.investor_name || json.name || json.investor;
+    }
+    if (json.pan || json.pan_number || json.panCard) {
+      metaPan = json.pan || json.pan_number || json.panCard;
+    }
+    if (json.statementPeriod || json.period || json.statement_period) {
+      metaPeriod = json.statementPeriod || json.period || json.statement_period;
+    }
     
+    // 1A. Custom schemes map if present
     if (json.customSchemes && typeof json.customSchemes === 'object') {
       Object.values(json.customSchemes).forEach((s: any) => {
         if (s && s.schemeCode) {
@@ -188,30 +212,126 @@ export function parseCasStatement(fileContent: string): { transactions: Transact
       });
     }
 
-    if (json.transactions && Array.isArray(json.transactions)) {
-      json.transactions.forEach((tx: any) => {
-        if (tx.schemeCode && tx.amount) {
-          const rawName = tx.schemeName || 'Direct Mutual Fund';
+    // 1B. Standard flat transactions array
+    const rawTxArray = Array.isArray(json) 
+      ? json 
+      : (Array.isArray(json.transactions) ? json.transactions : (Array.isArray(json.data) ? json.data : []));
+
+    if (rawTxArray.length > 0) {
+      rawTxArray.forEach((tx: any) => {
+        if ((tx.schemeCode || tx.scheme || tx.schemeName) && (tx.amount !== undefined || tx.units !== undefined)) {
+          const rawName = tx.schemeName || tx.scheme || 'Direct Mutual Fund';
           const plan = tx.planType || detectPlanType(rawName, tx.isin, undefined, 'Direct');
           const option = tx.optionType || detectOptionType(rawName, tx.isin);
+          const u = Math.abs(parseFloat(tx.units) || 0);
+          const n = parseFloat(tx.nav) || 100;
+          const a = Math.abs(parseFloat(tx.amount) || (u * n));
+
+          let tType: TransactionRecord['type'] = tx.type || 'SIP';
+          const upper = String(tx.type || tx.description || '').toUpperCase();
+          if (upper.includes('REDEMPTION') || upper.includes('SELL') || upper.includes('SWITCH OUT') || upper.includes('SWITCH_OUT')) {
+            tType = 'REDEMPTION';
+          } else if (upper.includes('LUMP') || upper.includes('PURCHASE')) {
+            tType = 'LUMPSUM';
+          } else if (upper.includes('SWITCH IN') || upper.includes('SWITCH_IN')) {
+            tType = 'SWITCH_IN';
+          }
+
           resultTxs.push({
             id: tx.id || `cas-${idCounter++}`,
-            folioNumber: tx.folioNumber || 'FOLIO-1',
-            schemeCode: String(tx.schemeCode),
+            folioNumber: normalizeFolioNumber(tx.folioNumber || tx.folio || 'FOLIO-1'),
+            schemeCode: String(tx.schemeCode || tx.amfi || tx.scheme_code || '122639'),
             schemeName: cleanFundDisplayName(rawName),
             planType: plan,
             optionType: option,
-            type: tx.type || 'SIP',
-            date: tx.date || new Date().toISOString().split('T')[0],
-            units: Math.abs(parseFloat(tx.units) || 0),
-            nav: parseFloat(tx.nav) || 100,
-            amount: Math.abs(parseFloat(tx.amount) || 0),
+            type: tType,
+            date: (tx.date || new Date().toISOString()).split('T')[0],
+            units: u,
+            nav: n,
+            amount: a,
             status: 'COMPLETED',
-            notes: tx.notes || 'Imported via CAS'
+            notes: tx.notes || tx.description || 'Imported via CAS JSON'
           });
         }
       });
-      return { transactions: resultTxs, detectedSchemes, summary: { imported: resultTxs.length, errors: 0 } };
+      if (resultTxs.length > 0) {
+        const uniqueFolios = new Set(resultTxs.map(t => normalizeFolioNumber(t.folioNumber)).filter(isValidFolioNumber));
+        return { 
+          transactions: resultTxs, 
+          detectedSchemes, 
+          summary: { imported: resultTxs.length, errors: 0 },
+          statementMeta: {
+            investorName: metaInvestorName,
+            pan: metaPan,
+            period: metaPeriod,
+            folioCount: uniqueFolios.size || 1
+          }
+        };
+      }
+    }
+
+    // 1C. Nested CAS JSON structure: folios[].schemes[].transactions[]
+    if (json.folios && Array.isArray(json.folios)) {
+      json.folios.forEach((folioItem: any) => {
+        const folioNo = normalizeFolioNumber(folioItem.folio || folioItem.folio_number || folioItem.folioNumber || 'FOLIO-1');
+        const schemesList = Array.isArray(folioItem.schemes) ? folioItem.schemes : [];
+
+        schemesList.forEach((schemeItem: any) => {
+          const rawSchemeName = schemeItem.scheme || schemeItem.scheme_name || schemeItem.name || 'Mutual Fund';
+          const schemeCode = String(schemeItem.amfi || schemeItem.scheme_code || schemeItem.schemeCode || '122639');
+          const isin = schemeItem.isin || '';
+          const plan = schemeItem.planType || detectPlanType(rawSchemeName, isin, schemeCode, 'Direct');
+          const option = schemeItem.optionType || detectOptionType(rawSchemeName, isin);
+
+          const txsList = Array.isArray(schemeItem.transactions) ? schemeItem.transactions : [];
+          txsList.forEach((tx: any) => {
+            const u = Math.abs(parseFloat(tx.units) || 0);
+            const n = parseFloat(tx.nav) || 100;
+            const a = Math.abs(parseFloat(tx.amount) || (u * n));
+
+            let tType: TransactionRecord['type'] = 'SIP';
+            const desc = String(tx.description || tx.type || '').toUpperCase();
+            if (desc.includes('REDEMPTION') || desc.includes('SELL') || desc.includes('SWITCH OUT') || desc.includes('SWITCH_OUT')) {
+              tType = 'REDEMPTION';
+            } else if (desc.includes('LUMP') || desc.includes('PURCHASE')) {
+              tType = 'LUMPSUM';
+            } else if (desc.includes('SWITCH IN') || desc.includes('SWITCH_IN')) {
+              tType = 'SWITCH_IN';
+            }
+
+            resultTxs.push({
+              id: tx.id || `cas-${idCounter++}`,
+              folioNumber: folioNo,
+              schemeCode,
+              schemeName: cleanFundDisplayName(rawSchemeName),
+              planType: plan,
+              optionType: option,
+              type: tType,
+              date: (tx.date || new Date().toISOString()).split('T')[0],
+              units: u,
+              nav: n,
+              amount: a,
+              status: 'COMPLETED',
+              notes: tx.description || tx.notes || 'Imported via CAS'
+            });
+          });
+        });
+      });
+
+      if (resultTxs.length > 0) {
+        const uniqueFolios = new Set(resultTxs.map(t => normalizeFolioNumber(t.folioNumber)).filter(isValidFolioNumber));
+        return { 
+          transactions: resultTxs, 
+          detectedSchemes, 
+          summary: { imported: resultTxs.length, errors: 0 },
+          statementMeta: {
+            investorName: metaInvestorName,
+            pan: metaPan,
+            period: metaPeriod,
+            folioCount: uniqueFolios.size || json.folios.length
+          }
+        };
+      }
     }
   } catch {
     // Not standard JSON, proceed to CSV / line-by-line parsing
@@ -228,7 +348,7 @@ export function parseCasStatement(fileContent: string): { transactions: Transact
     if (cols.length >= 6) {
       try {
         const dateStr = cols[0];
-        const folio = cols[1] || 'FOLIO-1';
+        const folio = normalizeFolioNumber(cols[1] || 'FOLIO-1');
         const schemeCode = cols[2] || '122639';
         const rawSchemeName = cols[3] || 'Mutual Fund Scheme';
         const typeRaw = cols[4]?.toUpperCase() || 'SIP';
@@ -266,5 +386,16 @@ export function parseCasStatement(fileContent: string): { transactions: Transact
     }
   }
 
-  return { transactions: resultTxs, detectedSchemes, summary: { imported: resultTxs.length, errors: errorCount } };
+  const uniqueFolios = new Set(resultTxs.map(t => normalizeFolioNumber(t.folioNumber)).filter(isValidFolioNumber));
+  return { 
+    transactions: resultTxs, 
+    detectedSchemes, 
+    summary: { imported: resultTxs.length, errors: errorCount },
+    statementMeta: {
+      investorName: metaInvestorName,
+      pan: metaPan,
+      period: metaPeriod,
+      folioCount: uniqueFolios.size || (resultTxs.length > 0 ? 1 : 0)
+    }
+  };
 }

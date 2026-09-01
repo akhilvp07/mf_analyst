@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { 
   UploadCloud, 
   FileText, 
@@ -24,7 +24,7 @@ import { TransactionRecord, MutualFundScheme } from '../types';
 import { parseCasStatement, exportPortfolioToJson } from '../services/portfolioStorage';
 import { parsePdfCasStatement, PdfParseResult } from '../services/pdfCasParser';
 import { resolveSchemeLiveDetails } from '../services/mfApi';
-import { cleanFundDisplayName } from '../utils/financialCalculations';
+import { cleanFundDisplayName, analyzeTransactionsMerge } from '../utils/financialCalculations';
 
 interface CasImporterProps {
   transactions: TransactionRecord[];
@@ -41,7 +41,8 @@ export const CasImporter: React.FC<CasImporterProps> = ({
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [parsedPreview, setParsedPreview] = useState<TransactionRecord[]>([]);
   const [detectedSchemes, setDetectedSchemes] = useState<Record<string, MutualFundScheme>>({});
-  const [replaceMode, setReplaceMode] = useState<boolean>(true);
+  const [replaceMode, setReplaceMode] = useState<boolean>(false);
+  const [previewFilterTab, setPreviewFilterTab] = useState<'ALL' | 'NEW' | 'DUPLICATES'>('ALL');
   
   // PDF Password Management
   const [pdfPassword, setPdfPassword] = useState<string>('');
@@ -218,7 +219,7 @@ export const CasImporter: React.FC<CasImporterProps> = ({
 
           if (result.transactions.length > 0) {
             setParsedPreview(result.transactions);
-            setStatementMeta({});
+            setStatementMeta(result.statementMeta || {});
             setImportStatus('success');
             setStatusMessage(`Successfully parsed ${result.transactions.length} transactions from "${fileName}"!`);
             
@@ -275,9 +276,22 @@ export const CasImporter: React.FC<CasImporterProps> = ({
 
   const handleCommitImport = () => {
     if (parsedPreview.length > 0) {
+      if (!replaceMode && mergeAnalysis.addedCount === 0 && mergeAnalysis.duplicateCount > 0) {
+        setStatusMessage(`All ${mergeAnalysis.duplicateCount} transactions already exist in your portfolio. No duplicate records were added.`);
+        setImportStatus('success');
+        setParsedPreview([]);
+        return;
+      }
+
       onImportTransactions(parsedPreview, replaceMode, detectedSchemes);
       setParsedPreview([]);
-      setStatusMessage(`Applied ${parsedPreview.length} transactions to your active portfolio!`);
+      setStatusMessage(
+        replaceMode
+          ? `Replaced entire portfolio with ${parsedPreview.length} transactions.`
+          : mergeAnalysis.duplicateCount > 0
+          ? `Merged successfully! Added ${mergeAnalysis.addedCount} new transactions (${mergeAnalysis.duplicateCount} duplicates safely skipped).`
+          : `Merged successfully! Added all ${mergeAnalysis.addedCount} new transactions.`
+      );
     }
   };
 
@@ -293,17 +307,27 @@ export const CasImporter: React.FC<CasImporterProps> = ({
     document.body.removeChild(link);
   };
 
-  // Filtered preview transactions
-  const filteredPreview = parsedPreview.filter(t => {
-    if (!previewSearch) return true;
-    const q = previewSearch.toLowerCase();
-    return (
-      t.schemeName.toLowerCase().includes(q) ||
-      t.folioNumber.toLowerCase().includes(q) ||
-      t.type.toLowerCase().includes(q) ||
-      t.date.includes(q)
-    );
-  });
+  // Compute smart merge and duplicate analysis in real-time
+  const mergeAnalysis = useMemo(() => {
+    return analyzeTransactionsMerge(transactions, parsedPreview);
+  }, [transactions, parsedPreview]);
+
+  // Filtered preview items based on tab and search
+  const filteredPreviewItems = useMemo(() => {
+    return mergeAnalysis.previewItems.filter(item => {
+      const t = item.transaction;
+      if (previewFilterTab === 'NEW' && item.isDuplicate) return false;
+      if (previewFilterTab === 'DUPLICATES' && !item.isDuplicate) return false;
+      if (!previewSearch) return true;
+      const q = previewSearch.toLowerCase();
+      return (
+        t.schemeName.toLowerCase().includes(q) ||
+        t.folioNumber.toLowerCase().includes(q) ||
+        t.type.toLowerCase().includes(q) ||
+        t.date.includes(q)
+      );
+    });
+  }, [mergeAnalysis, previewFilterTab, previewSearch]);
 
   return (
     <div className="space-y-6">
@@ -432,25 +456,50 @@ export const CasImporter: React.FC<CasImporterProps> = ({
             </div>
           </div>
 
-          {/* Replace vs Append Toggle */}
-          <div className="flex items-center justify-between text-xs text-neutral-300 border-t border-neutral-800 pt-3">
-            <span>Import Mode:</span>
-            <div className="flex items-center gap-2 bg-neutral-800 p-1 rounded-xl">
-              <button
-                type="button"
-                onClick={() => setReplaceMode(true)}
-                className={`px-3 py-1 rounded-lg font-medium cursor-pointer transition ${replaceMode ? 'bg-emerald-600 text-white shadow-sm' : 'text-neutral-400'}`}
-              >
-                Replace Portfolio
-              </button>
-              <button
-                type="button"
-                onClick={() => setReplaceMode(false)}
-                className={`px-3 py-1 rounded-lg font-medium cursor-pointer transition ${!replaceMode ? 'bg-emerald-600 text-white shadow-sm' : 'text-neutral-400'}`}
-              >
-                Append / Merge
-              </button>
+          {/* Import Mode Selector */}
+          <div className="border-t border-neutral-800 pt-3 space-y-2">
+            <div className="flex items-center justify-between text-xs text-neutral-300">
+              <span className="font-semibold flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-emerald-400" />
+                Import Mode:
+              </span>
+              <div className="flex items-center gap-1 bg-neutral-800 p-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setReplaceMode(false)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition flex items-center gap-1 ${
+                    !replaceMode 
+                      ? 'bg-emerald-600 text-white shadow-sm' 
+                      : 'text-neutral-400 hover:text-neutral-200'
+                  }`}
+                >
+                  <Check className="w-3 h-3" />
+                  <span>Smart Merge (Deduplicated)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReplaceMode(true)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition ${
+                    replaceMode 
+                      ? 'bg-rose-600 text-white shadow-sm' 
+                      : 'text-neutral-400 hover:text-neutral-200'
+                  }`}
+                >
+                  Overwrite All
+                </button>
+              </div>
             </div>
+            <p className="text-[11px] text-neutral-400 leading-relaxed">
+              {!replaceMode ? (
+                <span className="text-emerald-400/90 font-medium">
+                  ✓ <strong>Smart Merge Active:</strong> Duplicate transactions across overlapping statement periods are automatically detected and skipped. Common historical transactions will never be duplicated.
+                </span>
+              ) : (
+                <span className="text-rose-400/90 font-medium">
+                  ⚠️ <strong>Overwrite Mode:</strong> Completely replaces all existing portfolio transactions with this uploaded statement.
+                </span>
+              )}
+            </p>
           </div>
         </div>
 
@@ -486,19 +535,19 @@ export const CasImporter: React.FC<CasImporterProps> = ({
           </div>
 
           <div className="bg-neutral-950/60 p-3.5 rounded-xl border border-neutral-800/80 space-y-2 text-xs">
-            <span className="font-semibold text-neutral-300 block">Supported Statement Capabilities:</span>
+            <span className="font-semibold text-neutral-300 block">Deduplicating Merge Engine:</span>
             <ul className="text-neutral-400 text-[11px] space-y-1">
               <li className="flex items-center gap-1.5">
                 <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-                <span>Encrypted PDF decryption with AES standard</span>
+                <span>Multi-period CAS merging without duplicate transactions</span>
               </li>
               <li className="flex items-center gap-1.5">
                 <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-                <span>Automatic Folio number and clean scheme name identification</span>
+                <span>Matches folios, clean scheme codes, dates, units, and amounts</span>
               </li>
               <li className="flex items-center gap-1.5">
                 <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-                <span>Accurate SIP, Lumpsum, Redemption, Switch In/Out classification</span>
+                <span>Safe to re-upload the same or overlapping 1-month / 1-year statements anytime</span>
               </li>
             </ul>
           </div>
@@ -583,19 +632,20 @@ export const CasImporter: React.FC<CasImporterProps> = ({
         </div>
       )}
 
-      {/* Preview Table If File Just Uploaded */}
+      {/* Preview Table & Merge Breakdown If File Just Uploaded */}
       {parsedPreview.length > 0 && (
-        <div className="bg-neutral-900 border border-emerald-500/40 rounded-2xl p-6 shadow-lg space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="bg-neutral-900 border border-emerald-500/40 rounded-2xl p-6 shadow-lg space-y-5">
+          {/* Header Action Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                Parsed Transactions Preview ({parsedPreview.length} records)
-                <span className="text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full">
-                  Ready to Commit
+                Parsed Statement Analysis ({parsedPreview.length} records in file)
+                <span className="text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                  Ready to Merge
                 </span>
               </h3>
               <p className="text-xs text-neutral-400 mt-0.5">
-                Review extracted records before applying to your live portfolio.
+                Review extracted records and deduplication status before applying to your portfolio.
               </p>
             </div>
 
@@ -608,30 +658,124 @@ export const CasImporter: React.FC<CasImporterProps> = ({
               </button>
               <button
                 onClick={handleCommitImport}
-                className="px-4 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer shadow-md shadow-emerald-900/40 flex items-center gap-1.5"
+                className={`px-4 py-2 text-xs font-bold rounded-lg text-white cursor-pointer shadow-md flex items-center gap-1.5 transition ${
+                  replaceMode
+                    ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-900/40'
+                    : mergeAnalysis.addedCount === 0
+                    ? 'bg-neutral-700 hover:bg-neutral-600 text-neutral-200'
+                    : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/40'
+                }`}
               >
                 <Check className="w-3.5 h-3.5" />
-                <span>Commit & Apply ({parsedPreview.length})</span>
+                <span>
+                  {replaceMode
+                    ? `Overwrite Portfolio (${parsedPreview.length} Records)`
+                    : mergeAnalysis.addedCount > 0 && mergeAnalysis.duplicateCount > 0
+                    ? `Smart Merge: Add ${mergeAnalysis.addedCount} New Records (${mergeAnalysis.duplicateCount} Duplicates Skipped)`
+                    : mergeAnalysis.addedCount > 0
+                    ? `Smart Merge: Add All ${mergeAnalysis.addedCount} Records`
+                    : `All ${mergeAnalysis.duplicateCount} Records Already in Portfolio`}
+                </span>
               </button>
             </div>
           </div>
 
-          {/* Search bar inside preview */}
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
-            <input
-              type="text"
-              value={previewSearch}
-              onChange={(e) => setPreviewSearch(e.target.value)}
-              placeholder="Search extracted transactions by scheme, folio, or type..."
-              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-neutral-500 outline-none focus:border-emerald-500/60"
-            />
+          {/* Merge Statistics Breakdown Banner */}
+          {!replaceMode && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-neutral-950 p-3.5 rounded-xl border border-emerald-500/30 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">New Transactions</span>
+                  <div className="text-lg font-bold text-white mt-0.5">
+                    +{mergeAnalysis.addedCount} <span className="text-xs font-normal text-emerald-400">will be added</span>
+                  </div>
+                </div>
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold text-xs">
+                  NEW
+                </div>
+              </div>
+
+              <div className="bg-neutral-950 p-3.5 rounded-xl border border-neutral-800 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider">Duplicates Detected</span>
+                  <div className="text-lg font-bold text-neutral-300 mt-0.5">
+                    {mergeAnalysis.duplicateCount} <span className="text-xs font-normal text-neutral-400">safely skipped</span>
+                  </div>
+                </div>
+                <div className="w-8 h-8 rounded-lg bg-neutral-800 text-neutral-400 flex items-center justify-center font-bold text-xs">
+                  SKIP
+                </div>
+              </div>
+
+              <div className="bg-neutral-950 p-3.5 rounded-xl border border-neutral-800 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider">Resulting Portfolio Total</span>
+                  <div className="text-lg font-bold text-blue-400 mt-0.5">
+                    {mergeAnalysis.totalResultingCount} <span className="text-xs font-normal text-neutral-400">records</span>
+                  </div>
+                </div>
+                <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center font-bold text-xs">
+                  TOTAL
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Filter Tabs & Search Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+            <div className="flex items-center gap-1.5 bg-neutral-950 p-1 rounded-xl border border-neutral-800">
+              <button
+                type="button"
+                onClick={() => setPreviewFilterTab('ALL')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg cursor-pointer transition ${
+                  previewFilterTab === 'ALL'
+                    ? 'bg-neutral-800 text-white shadow-sm'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                All Records ({parsedPreview.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewFilterTab('NEW')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg cursor-pointer transition ${
+                  previewFilterTab === 'NEW'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-neutral-400 hover:text-emerald-300'
+                }`}
+              >
+                New Only ({mergeAnalysis.addedCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewFilterTab('DUPLICATES')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg cursor-pointer transition ${
+                  previewFilterTab === 'DUPLICATES'
+                    ? 'bg-neutral-800 text-neutral-200 shadow-sm'
+                    : 'text-neutral-400 hover:text-neutral-300'
+                }`}
+              >
+                Duplicates ({mergeAnalysis.duplicateCount})
+              </button>
+            </div>
+
+            <div className="relative flex-1 sm:max-w-xs">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+              <input
+                type="text"
+                value={previewSearch}
+                onChange={(e) => setPreviewSearch(e.target.value)}
+                placeholder="Search preview transactions..."
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-neutral-500 outline-none focus:border-emerald-500/60"
+              />
+            </div>
           </div>
 
-          <div className="overflow-x-auto max-h-72 border border-neutral-800 rounded-xl">
+          <div className="overflow-x-auto max-h-80 border border-neutral-800 rounded-xl">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-neutral-800/90 text-neutral-400 sticky top-0 backdrop-blur">
+              <thead className="bg-neutral-800/90 text-neutral-400 sticky top-0 backdrop-blur z-10">
                 <tr>
+                  <th className="p-2.5 font-medium">Merge Status</th>
                   <th className="p-2.5 font-medium">Date</th>
                   <th className="p-2.5 font-medium">Folio</th>
                   <th className="p-2.5 font-medium">Scheme Name</th>
@@ -642,28 +786,65 @@ export const CasImporter: React.FC<CasImporterProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-800 text-neutral-200">
-                {filteredPreview.map((t, idx) => (
-                  <tr key={idx} className="hover:bg-neutral-800/40 transition">
-                    <td className="p-2.5 font-mono text-neutral-400 whitespace-nowrap">{t.date}</td>
-                    <td className="p-2.5 font-mono text-neutral-400 text-[11px] whitespace-nowrap">{t.folioNumber}</td>
-                    <td className="p-2.5 truncate max-w-xs font-medium text-white">{t.schemeName}</td>
-                    <td className="p-2.5">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        t.type === 'SIP' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                        t.type === 'LUMPSUM' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
-                        t.type === 'REDEMPTION' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
-                        'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                      }`}>
-                        {t.type}
-                      </span>
-                    </td>
-                    <td className="p-2.5 text-right font-mono">{t.units.toFixed(3)}</td>
-                    <td className="p-2.5 text-right font-mono">₹{t.nav.toFixed(2)}</td>
-                    <td className="p-2.5 text-right font-mono font-bold text-emerald-400">
-                      ₹{t.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {filteredPreviewItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="p-6 text-center text-neutral-500">
+                      No transactions matching the selected filter.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredPreviewItems.map((item, idx) => {
+                    const t = item.transaction;
+                    return (
+                      <tr 
+                        key={idx} 
+                        className={`transition ${
+                          item.isDuplicate && !replaceMode 
+                            ? 'bg-neutral-950/40 text-neutral-400 hover:bg-neutral-800/20' 
+                            : 'hover:bg-neutral-800/40'
+                        }`}
+                      >
+                        <td className="p-2.5 whitespace-nowrap">
+                          {replaceMode ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-800 text-neutral-300 border border-neutral-700">
+                              Overwrite
+                            </span>
+                          ) : item.isDuplicate ? (
+                            <span 
+                              className="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-800/90 text-neutral-400 border border-neutral-700/80 inline-flex items-center gap-1"
+                              title={`Matches existing transaction in portfolio on ${item.duplicateOf?.date || t.date} — will be skipped`}
+                            >
+                              <Check className="w-2.5 h-2.5 text-neutral-500" />
+                              In Portfolio (Skip)
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 inline-flex items-center gap-1">
+                              + New Record
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-2.5 font-mono text-neutral-400 whitespace-nowrap">{t.date}</td>
+                        <td className="p-2.5 font-mono text-neutral-400 text-[11px] whitespace-nowrap">{t.folioNumber}</td>
+                        <td className="p-2.5 truncate max-w-xs font-medium text-white">{t.schemeName}</td>
+                        <td className="p-2.5">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            t.type === 'SIP' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                            t.type === 'LUMPSUM' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
+                            t.type === 'REDEMPTION' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
+                            'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                          }`}>
+                            {t.type}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-right font-mono">{t.units.toFixed(3)}</td>
+                        <td className="p-2.5 text-right font-mono">₹{t.nav.toFixed(2)}</td>
+                        <td className="p-2.5 text-right font-mono font-bold text-emerald-400">
+                          ₹{t.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
