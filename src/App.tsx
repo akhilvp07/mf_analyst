@@ -359,7 +359,11 @@ export default function App() {
         )}
 
         {activeTab === 'insights' && (
-          <PortfolioInsights holdings={holdings} />
+          <PortfolioInsights 
+            holdings={holdings} 
+            summary={summary} 
+            transactions={transactions} 
+          />
         )}
 
         {activeTab === 'tax' && (
@@ -367,7 +371,7 @@ export default function App() {
         )}
 
         {activeTab === 'simulator' && (
-          <SipSimulator />
+          <SipSimulator summary={summary} holdings={holdings} />
         )}
 
         {activeTab === 'import' && (

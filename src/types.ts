@@ -139,3 +139,65 @@ export interface TaxComputation {
   taxHarvestingOpportunity: number;
 }
 
+export interface AllocationStrategy {
+  id: string;
+  name: string;
+  description: string;
+  // Asset class percentages (sum = 100)
+  equity: number;
+  debt: number;
+  gold: number;
+  cash: number;
+  // Equity market cap sub-percentages (sum = 100)
+  largeCap: number;
+  midCap: number;
+  smallCap: number;
+}
+
+export interface MarketCapAllocation {
+  largeCap: number;
+  midCap: number;
+  smallCap: number;
+  largeCapValue: number;
+  midCapValue: number;
+  smallCapValue: number;
+  totalEquityValue: number;
+}
+
+export interface RebalanceItem {
+  name: string;
+  category: 'Asset Class' | 'Market Cap';
+  currentValue: number;
+  currentPct: number;
+  targetPct: number;
+  targetValue: number;
+  driftPct: number; // currentPct - targetPct
+  actionType: 'BUY' | 'SELL' | 'BALANCED';
+  deltaAmount: number; // positive = buy, negative = sell
+  sipAllocAmount: number; // allocated share of fresh SIP/inflow
+  sipAllocPct: number;
+  status: 'OVERWEIGHT' | 'UNDERWEIGHT' | 'ALIGNED';
+}
+
+export interface RebalanceReport {
+  assetClassItems: RebalanceItem[];
+  marketCapItems: RebalanceItem[];
+  totalPortfolioValue: number;
+  inflowAmount: number;
+  rebalanceMode: 'SIP_INFLOW' | 'DIRECT_REALIGNMENT';
+  totalRebalanceRequired: number;
+  isAligned: boolean;
+}
+
+export interface AiPortfolioInsight {
+  score: number;
+  grade: string;
+  executiveSummary: string;
+  strengths: string[];
+  risks: string[];
+  recommendations: string[];
+  rebalanceAdvice: string;
+  rawMarkdown?: string;
+  timestamp: string;
+}
+

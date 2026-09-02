@@ -820,6 +820,75 @@ export function lookupAmfiBySchemeCode(code?: string): AmfiNavRecord | null {
 }
 
 /**
+ * Fast synchronous lookup of an AMFI record by scheme name and plan/option preference
+ */
+export function lookupAmfiBySchemeName(
+  schemeName?: string,
+  preferredPlan?: 'Direct' | 'Regular',
+  preferredOption?: 'Growth' | 'IDCW'
+): AmfiNavRecord | null {
+  if (!schemeName || schemeName.trim().length < 3) return null;
+  initMemoryCacheIfEmpty();
+
+  const cleanQuery = cleanFundDisplayName(schemeName).toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!cleanQuery) return null;
+
+  const targetPlan = preferredPlan || detectPlanType(schemeName, undefined, undefined, 'Direct');
+  const targetOption = preferredOption || detectOptionType(schemeName);
+
+  // Search across memory maps or seed records
+  const allRecords: AmfiNavRecord[] = [];
+  if (cachedCodeMap && cachedCodeMap.size > 0) {
+    allRecords.push(...Array.from(cachedCodeMap.values()));
+  } else {
+    allRecords.push(...Object.values(SEED_AMFI_RECORDS));
+  }
+
+  let bestMatch: AmfiNavRecord | null = null;
+  let bestScore = 0;
+
+  for (const rec of allRecords) {
+    const recClean = cleanFundDisplayName(rec.schemeName).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!recClean) continue;
+
+    let score = 0;
+    if (recClean === cleanQuery) {
+      score = 100;
+    } else if (recClean.includes(cleanQuery) || cleanQuery.includes(recClean)) {
+      score = 85;
+    } else {
+      const queryWords = cleanFundDisplayName(schemeName)
+        .toLowerCase()
+        .split(/[\s\-&]+/)
+        .filter(w => w.length > 2 && w !== 'fund' && w !== 'direct' && w !== 'regular' && w !== 'growth' && w !== 'plan');
+      
+      if (queryWords.length > 0) {
+        const matched = queryWords.filter(w => rec.schemeName.toLowerCase().includes(w)).length;
+        if (matched >= Math.min(queryWords.length, 3)) {
+          score = 50 + (matched / queryWords.length) * 30;
+        }
+      }
+    }
+
+    if (score > 0) {
+      if (rec.planType === targetPlan) score += 10;
+      if (rec.optionType === targetOption) score += 5;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = rec;
+      }
+    }
+  }
+
+  if (bestScore >= 60) {
+    return bestMatch;
+  }
+
+  return null;
+}
+
+/**
  * Fetch and load the latest AMFI NAVAll.txt database with caching and proxy support
  */
 export async function loadAmfiNavDatabase(

@@ -1,8 +1,8 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { TransactionRecord, MutualFundScheme } from '../types';
-import { cleanFundDisplayName, isValidFolioNumber, normalizeFolioNumber, detectPlanType, detectOptionType } from '../utils/financialCalculations';
+import { cleanFundDisplayName, isValidFolioNumber, normalizeFolioNumber, detectPlanType, detectOptionType, areSchemesEquivalent } from '../utils/financialCalculations';
 import { KNOWN_ISIN_MAP, KNOWN_SCHEMES_MAP } from './mfApi';
-import { lookupAmfiByIsin, loadAmfiNavDatabase } from './amfiNavService';
+import { lookupAmfiByIsin, lookupAmfiBySchemeName, lookupAmfiBySchemeCode, loadAmfiNavDatabase } from './amfiNavService';
 
 // Set worker source for pdfjs-dist
 try {
@@ -462,6 +462,30 @@ export function isSchemeHeaderLine(line: string): boolean {
     return false;
   }
 
+  // Check for common AMC and Mutual Fund keywords
+  const hasAmcKeywords = 
+    lower.includes('mutual fund') ||
+    lower.includes('nippon') ||
+    lower.includes('mirae') ||
+    lower.includes('hdfc') ||
+    lower.includes('sbi') ||
+    lower.includes('icici') ||
+    lower.includes('kotak') ||
+    lower.includes('axis') ||
+    lower.includes('tata') ||
+    lower.includes('motilal') ||
+    lower.includes('quant') ||
+    lower.includes('parag parikh') ||
+    lower.includes('ppfas') ||
+    lower.includes('bandhan') ||
+    lower.includes('uti') ||
+    lower.includes('dsp') ||
+    lower.includes('canara robeco') ||
+    lower.includes('edelweiss') ||
+    lower.includes('invesco') ||
+    lower.includes('zerodha') ||
+    lower.includes('groww');
+
   // Must contain mutual fund scheme identifiers
   const hasFundKeywords = 
     lower.includes('fund') || 
@@ -471,13 +495,19 @@ export function isSchemeHeaderLine(line: string): boolean {
     lower.includes('idcw') || 
     lower.includes('dividend') || 
     lower.includes('index fund') ||
+    lower.includes('small cap') ||
+    lower.includes('mid cap') ||
+    lower.includes('large cap') ||
+    lower.includes('flexi cap') ||
+    lower.includes('elss') ||
+    lower.includes('tax saver') ||
     lower.includes('etf') ||
     lower.includes('scheme:') ||
     lower.includes('scheme name:');
 
   const hasIsin = /\bINF[A-Z0-9]{9}\b/i.test(line);
 
-  return hasFundKeywords || hasIsin;
+  return hasFundKeywords || hasIsin || (hasAmcKeywords && (lower.includes('direct') || lower.includes('regular') || lower.includes('plan') || lower.includes('growth')));
 }
 
 /**
@@ -490,7 +520,7 @@ export function cleanSchemeHeader(rawName: string): string {
 /**
  * Generate scheme info with clean fund name, fund house, category, plan type, and ISIN
  */
-export function findOrGenerateSchemeInfo(rawName: string, isin?: string): { 
+export function findOrGenerateSchemeInfo(rawName: string, isin?: string, existingSchemes?: Record<string, MutualFundScheme>): { 
   code: string; 
   name: string; 
   category: MutualFundScheme['category']; 
@@ -500,16 +530,58 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
   optionType: 'Growth' | 'IDCW';
   isin?: string;
 } {
-  const isinUpper = (isin || '').toUpperCase().trim();
-  const detectedPlan = detectPlanType(rawName, isin, undefined, 'Direct');
-  const detectedOption = detectOptionType(rawName, isin);
+  // Extract ISIN from parameter or rawName text
+  const lineIsinMatch = rawName.match(/\b(INF[A-Z0-9]{9})\b/i);
+  const effectiveIsin = (isin || (lineIsinMatch ? lineIsinMatch[1] : '')).toUpperCase().trim();
+
+  const detectedPlan = detectPlanType(rawName, effectiveIsin, undefined, 'Direct');
+  const detectedOption = detectOptionType(rawName, effectiveIsin);
   const cleanRaw = cleanFundDisplayName(rawName);
   const lowerRaw = rawName.toLowerCase();
   const cleanLower = cleanRaw.toLowerCase();
 
-  // 1. ISIN check in official AMFI NAV Database (Source of Truth)
-  if (isinUpper && isinUpper.length >= 10) {
-    const amfi = lookupAmfiByIsin(isinUpper);
+  // 0. Match with existing schemes already in the user's portfolio (Preserve existing scheme IDs!)
+  if (existingSchemes && Object.keys(existingSchemes).length > 0) {
+    const existingList = Object.values(existingSchemes);
+    
+    // 0a. Check by ISIN in existing portfolio schemes
+    if (effectiveIsin && effectiveIsin.length >= 10) {
+      const matchByIsin = existingList.find(s => s.isin && s.isin.toUpperCase() === effectiveIsin);
+      if (matchByIsin) {
+        return {
+          code: matchByIsin.schemeCode,
+          name: matchByIsin.schemeName,
+          category: matchByIsin.category,
+          fundHouse: matchByIsin.fundHouse,
+          defaultNav: matchByIsin.currentNav || 85.0,
+          planType: matchByIsin.planType || detectedPlan,
+          optionType: matchByIsin.optionType || detectedOption,
+          isin: matchByIsin.isin || effectiveIsin
+        };
+      }
+    }
+
+    // 0b. Check by Scheme Name in existing portfolio schemes
+    const matchByName = existingList.find(s => 
+      areSchemesEquivalent(s.schemeCode, s.schemeName, '', cleanRaw)
+    );
+    if (matchByName) {
+      return {
+        code: matchByName.schemeCode,
+        name: matchByName.schemeName,
+        category: matchByName.category,
+        fundHouse: matchByName.fundHouse,
+        defaultNav: matchByName.currentNav || 85.0,
+        planType: matchByName.planType || detectedPlan,
+        optionType: matchByName.optionType || detectedOption,
+        isin: matchByName.isin || effectiveIsin || undefined
+      };
+    }
+  }
+
+  // 1. Check ISIN in official AMFI NAV Database (Source of Truth)
+  if (effectiveIsin && effectiveIsin.length >= 10) {
+    const amfi = lookupAmfiByIsin(effectiveIsin);
     if (amfi) {
       return {
         code: amfi.schemeCode,
@@ -519,12 +591,12 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
         defaultNav: amfi.currentNav || 85.0,
         planType: amfi.planType,
         optionType: amfi.optionType,
-        isin: isinUpper
+        isin: effectiveIsin
       };
     }
 
-    if (KNOWN_ISIN_MAP[isinUpper]) {
-      const known = KNOWN_ISIN_MAP[isinUpper];
+    if (KNOWN_ISIN_MAP[effectiveIsin]) {
+      const known = KNOWN_ISIN_MAP[effectiveIsin];
       return {
         code: known.schemeCode,
         name: known.schemeName,
@@ -533,12 +605,27 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
         defaultNav: 85.0,
         planType: known.planType,
         optionType: known.optionType,
-        isin: isinUpper
+        isin: effectiveIsin
       };
     }
   }
 
-  // 2. Specific scheme resolution
+  // 2. AMFI Scheme Name Match (synchronous memory/seed catalog search)
+  const amfiByName = lookupAmfiBySchemeName(cleanRaw, detectedPlan, detectedOption);
+  if (amfiByName) {
+    return {
+      code: amfiByName.schemeCode,
+      name: amfiByName.schemeName,
+      category: amfiByName.category,
+      fundHouse: amfiByName.fundHouse,
+      defaultNav: amfiByName.currentNav || 85.0,
+      planType: amfiByName.planType,
+      optionType: amfiByName.optionType,
+      isin: effectiveIsin || amfiByName.isin
+    };
+  }
+
+  // 3. Specific scheme hard-resolutions
   const isFundOfFund = 
     lowerRaw.includes('fund of fund') || 
     lowerRaw.includes('fund of funds') || 
@@ -561,7 +648,7 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
         defaultNav: 70.0,
         planType: detectedPlan,
         optionType: detectedOption,
-        isin: isinUpper || (detectedPlan === 'Regular' ? 'INF247L01700' : 'INF247L01718')
+        isin: effectiveIsin || (detectedPlan === 'Regular' ? 'INF247L01700' : 'INF247L01718')
       };
     } else {
       return {
@@ -572,7 +659,7 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
         defaultNav: 274.0,
         planType: 'Direct',
         optionType: 'Growth',
-        isin: isinUpper || 'INF247L01AP3'
+        isin: effectiveIsin || 'INF247L01AP3'
       };
     }
   }
@@ -590,7 +677,7 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
       defaultNav: 14.6,
       planType: 'Direct',
       optionType: 'Growth',
-      isin: isinUpper || 'INF0R8F01026'
+      isin: effectiveIsin || 'INF0R8F01026'
     };
   }
 
@@ -612,7 +699,7 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
       defaultNav: 112.9,
       planType: detectedPlan,
       optionType: detectedOption,
-      isin: isinUpper || (detectedPlan === 'Direct' ? 'INF846K01EW2' : 'INF846K01131')
+      isin: effectiveIsin || (detectedPlan === 'Direct' ? 'INF846K01EW2' : 'INF846K01131')
     };
   }
 
@@ -627,7 +714,7 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
       defaultNav: detectedPlan === 'Regular' ? 83.08 : 91.17,
       planType: detectedPlan,
       optionType: detectedOption,
-      isin: isinUpper || (detectedPlan === 'Regular' ? 'INF879O01019' : 'INF879O01027')
+      isin: effectiveIsin || (detectedPlan === 'Regular' ? 'INF879O01019' : 'INF879O01027')
     };
   }
 
@@ -642,12 +729,12 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
         defaultNav: known.currentNav,
         planType: known.planType,
         optionType: known.optionType,
-        isin: isinUpper || known.isin
+        isin: effectiveIsin || known.isin
       };
     }
   }
 
-  // 3. General fund house derivation
+  // 4. General fund house derivation
   let fundHouse = 'Mutual Fund';
   if (lowerRaw.includes('parag parikh') || lowerRaw.includes('ppfas')) fundHouse = 'PPFAS Mutual Fund';
   else if (lowerRaw.includes('hdfc')) fundHouse = 'HDFC Mutual Fund';
@@ -663,6 +750,7 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
   else if (lowerRaw.includes('motilal')) fundHouse = 'Motilal Oswal Mutual Fund';
   else if (lowerRaw.includes('dsp')) fundHouse = 'DSP Mutual Fund';
   else if (lowerRaw.includes('bandhan') || lowerRaw.includes('idfc')) fundHouse = 'Bandhan Mutual Fund';
+  else if (lowerRaw.includes('canara robeco') || lowerRaw.includes('canara')) fundHouse = 'Canara Robeco Mutual Fund';
   else if (lowerRaw.includes('franklin')) fundHouse = 'Franklin Templeton Mutual Fund';
 
   // Derive category
@@ -677,7 +765,7 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
   else if (lowerRaw.includes('debt') || lowerRaw.includes('gilt') || lowerRaw.includes('short duration') || lowerRaw.includes('bond') || lowerRaw.includes('corporate bond')) category = 'Debt - Short Duration';
   else if (lowerRaw.includes('hybrid') || lowerRaw.includes('balanced') || lowerRaw.includes('multi asset') || lowerRaw.includes('equity savings')) category = 'Hybrid - Aggressive';
 
-  // Deterministic scheme code hash based on clean name + plan
+  // Deterministic scheme code hash based on clean name + plan + option
   let hash = 0;
   const hashKey = `${cleanRaw}-${detectedPlan}-${detectedOption}`;
   for (let i = 0; i < hashKey.length; i++) {
@@ -694,7 +782,7 @@ export function findOrGenerateSchemeInfo(rawName: string, isin?: string): {
     defaultNav: 85.0,
     planType: detectedPlan,
     optionType: detectedOption,
-    isin: isinUpper || undefined
+    isin: effectiveIsin || undefined
   };
 }
 
@@ -804,7 +892,8 @@ function hasTransactionKeywords(text: string): boolean {
  */
 export async function parsePdfCasStatement(
   pdfBuffer: ArrayBuffer | Uint8Array,
-  password?: string
+  password?: string,
+  existingSchemes?: Record<string, MutualFundScheme>
 ): Promise<PdfParseResult> {
   const transactions: TransactionRecord[] = [];
   const detectedSchemesMap = new Map<string, Partial<MutualFundScheme>>();
@@ -898,29 +987,31 @@ export async function parsePdfCasStatement(
 
     // Active state tracking during sequential scan
     let currentFolio = 'FOLIO-1';
-    let currentSchemeName = 'Indian Mutual Fund Scheme';
+    let currentSchemeName = '';
     let currentIsin = '';
-    let currentSchemeCode = '120503';
+    let currentSchemeCode = '';
     let currentPlanType: 'Direct' | 'Regular' = 'Direct';
     let currentOptionType: 'Growth' | 'IDCW' = 'Growth';
-    let currentCategory: MutualFundScheme['category'] = 'Equity - ELSS';
-    let currentFundHouse = 'Axis Mutual Fund';
+    let currentCategory: MutualFundScheme['category'] = 'Equity - Flexi Cap';
+    let currentFundHouse = 'Mutual Fund';
     let txIdCounter = 1;
 
-    // Helper to register scheme
-    const registerScheme = (rawName: string, isin?: string) => {
+    // Helper to register scheme cleanly without state contamination
+    const registerScheme = (rawName: string, explicitIsin?: string) => {
       const cleaned = cleanFundDisplayName(rawName);
       if (!cleaned || cleaned.length < 3) return;
 
-      const effectiveIsin = isin || currentIsin;
-      const info = findOrGenerateSchemeInfo(rawName, effectiveIsin);
+      const lineIsinMatch = rawName.match(/\b(INF[A-Z0-9]{9})\b/i);
+      const isinToUse = (explicitIsin || (lineIsinMatch ? lineIsinMatch[1] : undefined))?.toUpperCase().trim();
+
+      const info = findOrGenerateSchemeInfo(rawName, isinToUse, existingSchemes);
       currentSchemeName = info.name;
       currentSchemeCode = info.code;
       currentCategory = info.category;
       currentFundHouse = info.fundHouse;
       currentPlanType = info.planType;
       currentOptionType = info.optionType;
-      if (info.isin || isin) currentIsin = info.isin || isin || '';
+      currentIsin = info.isin || isinToUse || '';
 
       if (!detectedSchemesMap.has(currentSchemeCode)) {
         detectedSchemesMap.set(currentSchemeCode, {
@@ -947,7 +1038,7 @@ export async function parsePdfCasStatement(
       // 1. Check if line contains a closing NAV or valuation line for current scheme
       const closingNavMatch = line.match(/(?:NAV\s*(?:on|as\s*on|:|\s)\s*(?:INR|Rs\.?)?\s*|NAV\s*[:\-\s]\s*)([0-9,]+\.[0-9]{2,4})/i) ||
                               line.match(/at\s*NAV\s*(?:INR|Rs\.?)?\s*([0-9,]+\.[0-9]{2,4})/i);
-      if (closingNavMatch && closingNavMatch[1]) {
+      if (closingNavMatch && closingNavMatch[1] && currentSchemeCode) {
         const cNav = parseFloat(closingNavMatch[1].replace(/,/g, ''));
         if (!isNaN(cNav) && cNav > 0 && cNav < 50000) {
           schemeLastNavMap.set(currentSchemeCode, {
@@ -963,42 +1054,36 @@ export async function parsePdfCasStatement(
         if (extracted.folio && isValidFolioNumber(extracted.folio)) {
           currentFolio = extracted.folio;
           foliosSet.add(currentFolio);
+          // Clear currentIsin to prevent cross-folio bleed
+          currentIsin = '';
         }
       }
 
-      // 3. Detect ISIN code
+      // 3. Detect standalone ISIN code
       const isinMatch = line.match(/\b(INF[A-Z0-9]{9})\b/i);
       if (isinMatch) {
-        currentIsin = isinMatch[1].toUpperCase();
-        // Immediately lookup in official AMFI NAV database
-        const amfi = lookupAmfiByIsin(currentIsin);
-        if (amfi) {
-          currentSchemeName = amfi.schemeName;
-          currentSchemeCode = amfi.schemeCode;
-          currentCategory = amfi.category;
-          currentFundHouse = amfi.fundHouse;
-          currentPlanType = amfi.planType;
-          currentOptionType = amfi.optionType;
-          if (!detectedSchemesMap.has(currentSchemeCode)) {
-            detectedSchemesMap.set(currentSchemeCode, {
-              schemeCode: currentSchemeCode,
-              schemeName: amfi.schemeName,
-              category: amfi.category,
-              fundHouse: amfi.fundHouse,
-              planType: amfi.planType,
-              optionType: amfi.optionType,
-              currentNav: amfi.currentNav || 85.0,
-              navDate: amfi.navDate || new Date().toISOString().split('T')[0],
-              navChange1D: 0,
-              isin: currentIsin
-            });
-          }
-        }
+        const detectedIsin = isinMatch[1].toUpperCase();
+        currentIsin = detectedIsin;
+        registerScheme(currentSchemeName || line, detectedIsin);
       }
 
-      // 4. Detect Scheme Header
+      // 4. Detect Scheme Header (single line or combined multi-line header)
       if (isSchemeHeaderLine(line)) {
-        registerScheme(line, currentIsin);
+        // Check if next line continues the scheme header (e.g. "Direct Plan - Growth" or ISIN on next line)
+        let combinedHeader = line;
+        if (i + 1 < allReconstructedLines.length) {
+          const nextL = allReconstructedLines[i + 1];
+          if (!isDisclaimerOrNoticeLine(nextL) && (
+            nextL.toLowerCase().includes('direct') || 
+            nextL.toLowerCase().includes('regular') || 
+            nextL.toLowerCase().includes('growth') || 
+            nextL.toLowerCase().includes('idcw') ||
+            /\bINF[A-Z0-9]{9}\b/i.test(nextL)
+          )) {
+            combinedHeader = `${line} ${nextL}`;
+          }
+        }
+        registerScheme(combinedHeader);
         continue;
       }
 
@@ -1117,10 +1202,12 @@ export async function parsePdfCasStatement(
             if (amount >= 50 && units > 0) {
               if (nav === 0 || isNaN(nav)) nav = amount / units;
               
-              schemeLastNavMap.set(currentSchemeCode, {
-                nav: Math.round(nav * 100) / 100,
-                date: parsedDate
-              });
+              if (currentSchemeCode) {
+                schemeLastNavMap.set(currentSchemeCode, {
+                  nav: Math.round(nav * 100) / 100,
+                  date: parsedDate
+                });
+              }
 
               let txType = classifyTransactionType(line);
               
@@ -1143,11 +1230,14 @@ export async function parsePdfCasStatement(
                 txType = 'REDEMPTION';
               }
 
+              const resolvedSchemeCode = currentSchemeCode || `SCHEME-${txIdCounter}`;
+              const resolvedSchemeName = currentSchemeName || 'Mutual Fund Scheme';
+
               transactions.push({
-                id: `pdf-tx-${txIdCounter++}`,
-                folioNumber: isValidFolioNumber(currentFolio) ? currentFolio : 'FOLIO-1',
-                schemeCode: currentSchemeCode,
-                schemeName: cleanFundDisplayName(currentSchemeName),
+                id: `pdf-tx-${Date.now()}-${txIdCounter++}-${Math.random().toString(36).substring(2, 7)}`,
+                folioNumber: isValidFolioNumber(currentFolio) ? normalizeFolioNumber(currentFolio) : 'FOLIO-1',
+                schemeCode: resolvedSchemeCode,
+                schemeName: cleanFundDisplayName(resolvedSchemeName),
                 planType: currentPlanType,
                 optionType: currentOptionType,
                 type: txType,
@@ -1238,7 +1328,7 @@ export async function parsePdfCasStatement(
 
             transactions.push({
               id: `pdf-fallback-tx-${txIdCounter++}`,
-              folioNumber: isValidFolioNumber(currentFolio) ? currentFolio : 'FOLIO-1',
+              folioNumber: isValidFolioNumber(currentFolio) ? normalizeFolioNumber(currentFolio) : 'FOLIO-1',
               schemeCode: currentSchemeCode,
               schemeName: cleanFundDisplayName(currentSchemeName),
               planType: currentPlanType,
@@ -1256,10 +1346,12 @@ export async function parsePdfCasStatement(
       }
     }
 
-    // Deduplicate any duplicate entries on the same scheme, date, amount, units and type
+    // Deduplicate any duplicate entries on the same scheme, folio, date, amount, units and type
     const uniqueMap = new Map<string, TransactionRecord>();
     transactions.forEach(tx => {
-      const key = `${tx.schemeCode}_${tx.date}_${tx.type}_${tx.amount}_${tx.units}`;
+      const uKey = Math.abs(tx.units || 0).toFixed(3);
+      const aKey = Math.round(Math.abs(tx.amount || 0));
+      const key = `${tx.schemeCode}_${tx.folioNumber}_${tx.date}_${tx.type}_${aKey}_${uKey}`;
       if (!uniqueMap.has(key)) {
         uniqueMap.set(key, tx);
       }

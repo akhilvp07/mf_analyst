@@ -1467,25 +1467,158 @@ export function getTransactionDirection(type?: string): 'INFLOW' | 'OUTFLOW' {
 }
 
 /**
+ * Extracts a normalized calendar date string (YYYY-MM-DD) without timezone shifts
+ */
+export function getCalendarDateString(dateInput: string | number | Date | undefined): string {
+  if (!dateInput) return '';
+  if (typeof dateInput === 'string') {
+    const s = dateInput.trim();
+    // 1. YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss
+    const ymd = s.match(/^(\d{4})[-\s/.](\d{1,2})[-\s/.](\d{1,2})/);
+    if (ymd) {
+      const year = ymd[1];
+      const month = ymd[2].padStart(2, '0');
+      const day = ymd[3].padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    // 2. DD-Mon-YYYY (e.g. 15-Mar-2024, 15-MAR-24, 15 Mar 2024)
+    const monthMap: Record<string, string> = {
+      jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+      jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12'
+    };
+    const dMonY = s.match(/^(\d{1,2})[-\s/]([a-zA-Z]{3,9})[-\s/](\d{2,4})/);
+    if (dMonY) {
+      const day = dMonY[1].padStart(2, '0');
+      const monKey = dMonY[2].substring(0, 3).toLowerCase();
+      const month = monthMap[monKey] || '01';
+      let year = dMonY[3];
+      if (year.length === 2) {
+        year = parseInt(year, 10) >= 70 ? `19${year}` : `20${year}`;
+      }
+      return `${year}-${month}-${day}`;
+    }
+    // 3. DD-MM-YYYY or DD/MM/YYYY
+    const dmy = s.match(/^(\d{1,2})[-\s/.](\d{1,2})[-\s/.](\d{2,4})/);
+    if (dmy) {
+      const day = dmy[1].padStart(2, '0');
+      const month = dmy[2].padStart(2, '0');
+      let year = dmy[3];
+      if (year.length === 2) {
+        year = parseInt(year, 10) >= 70 ? `19${year}` : `20${year}`;
+      }
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  const d = parseDateSafe(dateInput);
+  return d.toISOString().split('T')[0];
+}
+
+/**
+ * Calculates calendar days difference between two dates
+ */
+export function getCalendarDaysDiff(date1: string | number | Date | undefined, date2: string | number | Date | undefined): number {
+  const s1 = getCalendarDateString(date1);
+  const s2 = getCalendarDateString(date2);
+  if (!s1 || !s2) return 999;
+  if (s1 === s2) return 0;
+  const t1 = Date.parse(`${s1}T00:00:00Z`);
+  const t2 = Date.parse(`${s2}T00:00:00Z`);
+  return Math.abs(t1 - t2) / (1000 * 60 * 60 * 24);
+}
+
+/**
  * Checks if two fund scheme identifiers refer to the exact same mutual fund scheme
  */
 export function areSchemesEquivalent(
-  code1: string,
-  name1: string,
-  code2: string,
-  name2: string
+  code1?: string,
+  name1?: string,
+  code2?: string,
+  name2?: string
 ): boolean {
   const c1 = (code1 || '').trim();
   const c2 = (code2 || '').trim();
-  if (c1 && c2 && c1 === c2) return true;
 
-  const n1 = cleanFundDisplayName(name1).toLowerCase().replace(/[^a-z0-9]/g, '');
-  const n2 = cleanFundDisplayName(name2).toLowerCase().replace(/[^a-z0-9]/g, '');
+  // 1. Direct Scheme Code Match (Highest Priority: Same Scheme ID)
+  if (c1 && c2 && c1.toLowerCase() === c2.toLowerCase()) {
+    return true;
+  }
 
-  if (n1 && n2) {
-    if (n1 === n2) return true;
-    if (n1.length > 8 && n2.length > 8) {
-      if (n1.includes(n2) || n2.includes(n1)) return true;
+  const normalizeAliases = (str: string) => {
+    return str.toLowerCase()
+      .replace(/\bppfas\b/g, 'parag parikh')
+      .replace(/\bmosl\b/g, 'motilal oswal')
+      .replace(/\bicici\s*pru\b/g, 'icici prudential')
+      .replace(/\breliance\b/g, 'nippon india')
+      .replace(/\bidfc\b/g, 'bandhan')
+      .replace(/\b(birla\s*sun\s*life|absl)\b/g, 'aditya birla sun life')
+      .replace(/\b(fof|f\.o\.f)\b/g, 'fund of fund')
+      .replace(/\b(tax\s*saver|tax\s*advantage|long\s*term\s*equity)\b/g, 'elss')
+      .replace(/\bflexicap\b/g, 'flexi cap')
+      .replace(/\bsmallcap\b/g, 'small cap')
+      .replace(/\bmidcap\b/g, 'mid cap')
+      .replace(/\blargecap\b/g, 'large cap')
+      .replace(/\bmulticap\b/g, 'multi cap');
+  };
+
+  const n1Raw = cleanFundDisplayName(name1 || '');
+  const n2Raw = cleanFundDisplayName(name2 || '');
+  const n1 = normalizeAliases(n1Raw).replace(/[^a-z0-9]/g, '');
+  const n2 = normalizeAliases(n2Raw).replace(/[^a-z0-9]/g, '');
+
+  // 2. Direct Cleaned Name Match
+  if (n1 && n2 && (n1 === n2 || n1.includes(n2) || n2.includes(n1))) {
+    return true;
+  }
+
+  // 3. Token-based Scheme Name matching
+  if (n1Raw && n2Raw) {
+    const stopWords = new Set([
+      'direct', 'regular', 'growth', 'idcw', 'dividend', 'reinvestment', 'payout', 
+      'plan', 'option', 'fund', 'funds', 'mutual', 'scheme', 'schemes', 'amc', 
+      'limited', 'ltd', 'india', 'asset', 'management', 'the', 'and', 'of', 'in'
+    ]);
+
+    const getCoreTokens = (raw: string) => {
+      const aliasNormalized = normalizeAliases(raw);
+      return aliasNormalized
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length >= 2 && !stopWords.has(w));
+    };
+
+    const tokens1 = getCoreTokens(n1Raw);
+    const tokens2 = getCoreTokens(n2Raw);
+
+    if (tokens1.length > 0 && tokens2.length > 0) {
+      // Check category keywords - distinct categories MUST NOT match
+      const categoryKeywords = [
+        'arbitrage', 'liquid', 'overnight', 'small', 'mid', 'large', 
+        'flexi', 'multi', 'elss', 'gold', 'silver', 'nasdaq', 'index', 'debt', 'gilt', 'hybrid'
+      ];
+      
+      let categoryConflict = false;
+      for (const cat of categoryKeywords) {
+        const has1 = tokens1.some(t => t.includes(cat));
+        const has2 = tokens2.some(t => t.includes(cat));
+        if (has1 !== has2) {
+          // If one has 'small' and the other has 'mid', they cannot match
+          categoryConflict = true;
+          break;
+        }
+      }
+
+      if (!categoryConflict) {
+        // Check token intersection
+        const common = tokens1.filter(t1 => 
+          tokens2.some(t2 => t2 === t1 || (t1.length >= 4 && t2.length >= 4 && (t1.includes(t2) || t2.includes(t1))))
+        );
+        const minTokens = Math.min(tokens1.length, tokens2.length);
+        
+        if (common.length >= Math.min(2, minTokens) && (common.length / minTokens) >= 0.5) {
+          return true;
+        }
+      }
     }
   }
 
@@ -1493,19 +1626,54 @@ export function areSchemesEquivalent(
 }
 
 /**
- * Normalizes folios for comparison (stripping spaces, slashes, trailing zeros)
+ * Normalizes folios for comparison (stripping spaces, sub-folio /0 suffixes, leading zeros)
  */
 export function areFoliosEquivalent(folio1?: string, folio2?: string): boolean {
-  const f1 = normalizeFolioNumber(folio1).toLowerCase().replace(/[^a-z0-9]/g, '');
-  const f2 = normalizeFolioNumber(folio2).toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!folio1 || !folio2) return true;
 
-  if (!f1 || !f2 || f1 === 'folio1' || f2 === 'folio1') {
-    // If either folio is missing or default placeholder, allow matching based on scheme + date + amount
+  const f1 = normalizeFolioNumber(folio1).trim();
+  const f2 = normalizeFolioNumber(folio2).trim();
+
+  if (!f1 || !f2 || 
+      f1 === 'FOLIO-1' || f2 === 'FOLIO-1' || 
+      f1.toLowerCase() === 'default' || f2.toLowerCase() === 'default' ||
+      f1.toLowerCase() === 'folio' || f2.toLowerCase() === 'folio' ||
+      f1.startsWith('tx_') || f2.startsWith('tx_')) {
     return true;
   }
 
-  if (f1 === f2) return true;
-  if (f1.includes(f2) || f2.includes(f1)) return true;
+  if (f1.toLowerCase() === f2.toLowerCase()) return true;
+
+  // Compare base folios by stripping sub-account suffixes (e.g. "12345678 / 0", "12345678/0", "12345678-0", "12345678 / 90")
+  const getBaseFolio = (f: string) => {
+    return f.split(/[\/\-_]/)[0].trim().replace(/^0+/, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  };
+
+  const base1 = getBaseFolio(f1);
+  const base2 = getBaseFolio(f2);
+
+  if (base1 && base2) {
+    if (base1 === base2) return true;
+    // Substring match for folios of length >= 5
+    if (base1.length >= 5 && base2.length >= 5 && (base1.includes(base2) || base2.includes(base1))) {
+      return true;
+    }
+    // Check if both end with the same 4+ digits (handling masked folios like XXXXXX43113 vs 91060243113)
+    if (base1.length >= 4 && base2.length >= 4 && base1.slice(-4) === base2.slice(-4)) {
+      return true;
+    }
+  }
+
+  // Alphanumeric stripped check with leading zeros removed
+  const a1 = f1.replace(/[^a-z0-9]/gi, '').replace(/^0+/, '').toLowerCase();
+  const a2 = f2.replace(/[^a-z0-9]/gi, '').replace(/^0+/, '').toLowerCase();
+
+  if (a1 && a2) {
+    if (a1 === a2) return true;
+    if (a1.length >= 5 && a2.length >= 5 && (a1.startsWith(a2) || a2.startsWith(a1) || a1.endsWith(a2) || a2.endsWith(a1))) {
+      return true;
+    }
+  }
 
   return false;
 }
@@ -1517,8 +1685,11 @@ export function areTransactionsDuplicate(
   t1: TransactionRecord,
   t2: TransactionRecord
 ): boolean {
-  // 1. Exact ID match
-  if (t1.id && t2.id && t1.id === t2.id) {
+  // 1. Exact non-generic ID match
+  if (t1.id && t2.id && t1.id === t2.id && 
+      !t1.id.startsWith('pdf-tx-') && !t1.id.startsWith('cas-tx-') && 
+      !t1.id.startsWith('csv-') && !t1.id.startsWith('tx_demo_') &&
+      !t1.id.startsWith('tx_')) {
     return true;
   }
 
@@ -1527,23 +1698,19 @@ export function areTransactionsDuplicate(
   const dir2 = getTransactionDirection(t2.type);
   if (dir1 !== dir2) return false;
 
-  // 3. Scheme check
+  // 3. Scheme equivalence check
   const schemeMatch = areSchemesEquivalent(t1.schemeCode, t1.schemeName, t2.schemeCode, t2.schemeName);
-  if (!schemeMatch) return false;
 
   // 4. Folio check
   const folioMatch = areFoliosEquivalent(t1.folioNumber, t2.folioNumber);
-  if (!folioMatch) return false;
 
-  // 5. Date check
-  const date1Str = (t1.date || '').split('T')[0];
-  const date2Str = (t2.date || '').split('T')[0];
-  const isSameDate = (date1Str === date2Str);
+  // 5. Calendar Date check
+  const dateStr1 = getCalendarDateString(t1.date);
+  const dateStr2 = getCalendarDateString(t2.date);
+  const isSameDate = Boolean(dateStr1 && dateStr2 && dateStr1 === dateStr2);
+  const daysDiff = getCalendarDaysDiff(t1.date, t2.date);
 
-  const time1 = new Date(date1Str).getTime();
-  const time2 = new Date(date2Str).getTime();
-  const daysDiff = Math.abs(time1 - time2) / (1000 * 60 * 60 * 24);
-
+  // 6. Units and Amount differences
   const u1 = Math.abs(t1.units || 0);
   const u2 = Math.abs(t2.units || 0);
   const a1 = Math.abs(t1.amount || 0);
@@ -1552,25 +1719,41 @@ export function areTransactionsDuplicate(
   const unitsDiff = Math.abs(u1 - u2);
   const amountDiff = Math.abs(a1 - a2);
 
-  // High-accuracy units match (within 0.005 units)
-  const isUnitsMatch = (unitsDiff <= 0.005) || (u1 > 10 && (unitsDiff / u1) < 0.0005);
-  // High-accuracy amount match (within ₹2.00 or 0.1% for stamp duty differences)
-  const isAmountMatch = (amountDiff <= 2.0) || (a1 > 100 && (amountDiff / a1) < 0.001);
+  const isExactUnitsMatch = (unitsDiff <= 0.005) || (u1 > 10 && (unitsDiff / u1) < 0.0005);
+  const isExactAmountMatch = (amountDiff <= 2.0) || (a1 > 100 && (amountDiff / a1) < 0.001);
 
-  // Exact same date match
-  if (isSameDate) {
-    if (isUnitsMatch && isAmountMatch) return true;
-    if (isUnitsMatch && (a1 === 0 || a2 === 0)) return true;
-    if (isAmountMatch && (u1 === 0 || u2 === 0)) return true;
-    // Both units match very closely
-    if (unitsDiff <= 0.001) return true;
-    // Both amount match exact
-    if (amountDiff <= 0.05 && u1 > 0 && u2 > 0 && unitsDiff <= 0.05) return true;
+  const isApproxUnitsMatch = (unitsDiff <= 0.05) || (u1 > 0 && (unitsDiff / u1) < 0.01);
+  const isApproxAmountMatch = (amountDiff <= 10.0) || (a1 > 0 && (amountDiff / a1) < 0.01);
+
+  // Case 1: Same Scheme + Same Date + (Units OR Amount Match)
+  if (schemeMatch && isSameDate) {
+    if (isExactUnitsMatch || isExactAmountMatch) return true;
+    if (isApproxUnitsMatch && isApproxAmountMatch) return true;
+    if (u1 === 0 || u2 === 0 || a1 === 0 || a2 === 0) {
+      if (isApproxUnitsMatch || isApproxAmountMatch) return true;
+    }
+    // High probability duplicate on exact same date for same scheme
+    if (unitsDiff <= 0.05 && amountDiff <= 10.0) return true;
   }
 
-  // Settlement offset match (within 1-2 days for T+1 / weekend posting)
-  if (daysDiff <= 2.5) {
-    if (unitsDiff <= 0.002 && amountDiff <= 1.0) return true;
+  // Case 2: High precision match (Exact Units + Exact Amount + Same Date)
+  if (isSameDate && isExactUnitsMatch && isExactAmountMatch) {
+    if (schemeMatch || folioMatch) return true;
+    const n1 = cleanFundDisplayName(t1.schemeName).toLowerCase();
+    const n2 = cleanFundDisplayName(t2.schemeName).toLowerCase();
+    if (n1 === n2 || n1.includes(n2) || n2.includes(n1)) return true;
+  }
+
+  // Case 3: Settlement offset match (within 1-3 days for T+1/T+2 or weekend posting)
+  if (schemeMatch && daysDiff <= 3.0) {
+    if (isExactUnitsMatch && isExactAmountMatch) return true;
+    if (folioMatch && (isExactUnitsMatch || isExactAmountMatch)) return true;
+    if (amountDiff <= 0.5 && (unitsDiff <= 0.01 || (u1 > 0 && unitsDiff / u1 < 0.001))) return true;
+  }
+
+  // Case 4: Same Folio + Same Date + Exact Units + Exact Amount
+  if (folioMatch && isSameDate && isExactUnitsMatch && isExactAmountMatch) {
+    return true;
   }
 
   return false;
@@ -1599,13 +1782,12 @@ export function mergeTransactions(
   // Build fast signature index for exact fast-path matches
   const makeKey = (tx: TransactionRecord) => {
     const dir = getTransactionDirection(tx.type);
-    const date = (tx.date || '').split('T')[0];
-    const code = (tx.schemeCode || '').trim();
-    const cleanName = cleanFundDisplayName(tx.schemeName).toLowerCase().replace(/[^a-z0-9]/g, '');
-    const folio = normalizeFolioNumber(tx.folioNumber).toLowerCase().replace(/[^a-z0-9]/g, '');
-    const u = Math.abs(tx.units || 0).toFixed(3);
+    const date = getCalendarDateString(tx.date);
+    const code = (tx.schemeCode || '').trim().toLowerCase();
+    const folio = normalizeFolioNumber(tx.folioNumber).split(/[\/\-_]/)[0].trim().replace(/^0+/, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+    const u = Math.abs(tx.units || 0).toFixed(2);
     const a = Math.round(Math.abs(tx.amount || 0));
-    return `${dir}|${date}|${code || cleanName}|${folio}|${u}|${a}`;
+    return `${dir}|${date}|${code}|${folio}|${u}|${a}`;
   };
 
   const exactKeyMap = new Map<string, number>();
@@ -1743,6 +1925,339 @@ export function analyzeTransactionsMerge(
     addedCount,
     duplicateCount,
     totalResultingCount: existingTransactions.length + addedCount
+  };
+}
+
+/**
+ * Standard default portfolio allocation strategy presets
+ */
+export const DEFAULT_ALLOCATION_STRATEGIES: import('../types').AllocationStrategy[] = [
+  {
+    id: 'aggressive_wealth',
+    name: 'Aggressive Wealth Growth',
+    description: '80% Equity (focus on high alpha & mid-caps), 15% Debt, 5% Gold. Suited for 7+ years horizon.',
+    equity: 80,
+    debt: 15,
+    gold: 5,
+    cash: 0,
+    largeCap: 45,
+    midCap: 35,
+    smallCap: 20
+  },
+  {
+    id: 'balanced_core',
+    name: 'Balanced Long-Term Core',
+    description: '65% Equity (large cap stability), 25% Debt, 10% Gold. Balanced risk-reward for 5-7 years.',
+    equity: 65,
+    debt: 25,
+    gold: 10,
+    cash: 0,
+    largeCap: 55,
+    midCap: 30,
+    smallCap: 15
+  },
+  {
+    id: 'conservative_shield',
+    name: 'Conservative Capital Preserver',
+    description: '40% Equity, 50% Debt, 10% Gold. Priority on capital preservation with low volatility.',
+    equity: 40,
+    debt: 50,
+    gold: 10,
+    cash: 0,
+    largeCap: 70,
+    midCap: 25,
+    smallCap: 5
+  },
+  {
+    id: 'pure_equity_alpha',
+    name: '100% Pure Equity Alpha',
+    description: '100% Equity diversified across market capitalizations. Maximum wealth compounding potential.',
+    equity: 100,
+    debt: 0,
+    gold: 0,
+    cash: 0,
+    largeCap: 45,
+    midCap: 35,
+    smallCap: 20
+  }
+];
+
+/**
+ * Accurately estimates Market-Cap breakdown (Large, Mid, Small Cap) from portfolio equity holdings
+ */
+export function computeMarketCapAllocation(holdings: PortfolioHolding[]): import('../types').MarketCapAllocation {
+  let largeCapValue = 0;
+  let midCapValue = 0;
+  let smallCapValue = 0;
+  let totalEquityValue = 0;
+
+  holdings.forEach(h => {
+    const cat = (h.category || '').toLowerCase();
+    const name = (h.schemeName || '').toLowerCase();
+
+    // Skip pure debt, liquid, and gold schemes from equity market cap calculation
+    if (
+      cat.includes('liquid') || 
+      cat.includes('overnight') || 
+      cat.includes('money market') ||
+      cat.includes('debt') || 
+      cat.includes('gilt') || 
+      cat.includes('duration') || 
+      cat.includes('bond') || 
+      cat.includes('gold') || 
+      cat.includes('silver') || 
+      cat.includes('commodity') ||
+      name.includes('gold be') ||
+      name.includes('liquid fund')
+    ) {
+      return;
+    }
+
+    // Hybrid schemes: treat approx 65% as equity
+    const equityPortionMultiplier = (cat.includes('hybrid') || cat.includes('balanced') || cat.includes('multi asset')) ? 0.65 : 1.0;
+    const effectiveEquityVal = h.currentValue * equityPortionMultiplier;
+    totalEquityValue += effectiveEquityVal;
+
+    if (cat.includes('small cap') || cat.includes('smallcap') || name.includes('small cap') || name.includes('smallcap')) {
+      smallCapValue += effectiveEquityVal * 0.85;
+      midCapValue += effectiveEquityVal * 0.15;
+    } else if (cat.includes('mid cap') || cat.includes('midcap') || name.includes('mid cap') || name.includes('midcap') || name.includes('emerging')) {
+      midCapValue += effectiveEquityVal * 0.80;
+      largeCapValue += effectiveEquityVal * 0.15;
+      smallCapValue += effectiveEquityVal * 0.05;
+    } else if (cat.includes('large & mid') || cat.includes('large and mid') || name.includes('large & mid')) {
+      largeCapValue += effectiveEquityVal * 0.50;
+      midCapValue += effectiveEquityVal * 0.45;
+      smallCapValue += effectiveEquityVal * 0.05;
+    } else if (cat.includes('large cap') || name.includes('large cap') || name.includes('bluechip') || name.includes('top 100') || name.includes('nifty 50') || name.includes('sensex')) {
+      largeCapValue += effectiveEquityVal * 0.90;
+      midCapValue += effectiveEquityVal * 0.10;
+    } else if (cat.includes('flexi cap') || cat.includes('flexicap') || name.includes('flexi cap') || name.includes('flexicap')) {
+      // Flexi cap funds typically hold ~65% Large, ~25% Mid, ~10% Small
+      largeCapValue += effectiveEquityVal * 0.65;
+      midCapValue += effectiveEquityVal * 0.25;
+      smallCapValue += effectiveEquityVal * 0.10;
+    } else if (cat.includes('multi cap') || cat.includes('multicap') || name.includes('multi cap')) {
+      // SEBI mandate requires min 25% Large, 25% Mid, 25% Small
+      largeCapValue += effectiveEquityVal * 0.40;
+      midCapValue += effectiveEquityVal * 0.35;
+      smallCapValue += effectiveEquityVal * 0.25;
+    } else if (cat.includes('elss') || cat.includes('tax saver')) {
+      largeCapValue += effectiveEquityVal * 0.70;
+      midCapValue += effectiveEquityVal * 0.20;
+      smallCapValue += effectiveEquityVal * 0.10;
+    } else {
+      // Other general equity/thematic
+      largeCapValue += effectiveEquityVal * 0.60;
+      midCapValue += effectiveEquityVal * 0.25;
+      smallCapValue += effectiveEquityVal * 0.15;
+    }
+  });
+
+  const largeCap = totalEquityValue > 0 ? (largeCapValue / totalEquityValue) * 100 : 0;
+  const midCap = totalEquityValue > 0 ? (midCapValue / totalEquityValue) * 100 : 0;
+  const smallCap = totalEquityValue > 0 ? (smallCapValue / totalEquityValue) * 100 : 0;
+
+  return {
+    largeCap,
+    midCap,
+    smallCap,
+    largeCapValue,
+    midCapValue,
+    smallCapValue,
+    totalEquityValue
+  };
+}
+
+/**
+ * Intelligent Portfolio Rebalancing Engine
+ * Computes asset class drift, equity market cap drift, direct realignment amounts,
+ * and tax-efficient fresh inflow / SIP distributions.
+ */
+export function computeRebalanceReport(
+  holdings: PortfolioHolding[],
+  strategy: import('../types').AllocationStrategy,
+  inflowAmount: number = 25000,
+  rebalanceMode: 'SIP_INFLOW' | 'DIRECT_REALIGNMENT' = 'SIP_INFLOW'
+): import('../types').RebalanceReport {
+  const totalVal = holdings.reduce((sum, h) => sum + h.currentValue, 0);
+  const assetAlloc = computeAssetAllocation(holdings);
+  const marketCapAlloc = computeMarketCapAllocation(holdings);
+
+  // 1. Asset Class Rebalance Items
+  const assetBuckets: { name: string; currentVal: number; currentPct: number; targetPct: number }[] = [
+    {
+      name: 'Equity',
+      currentVal: totalVal * (assetAlloc.equity / 100),
+      currentPct: assetAlloc.equity,
+      targetPct: strategy.equity
+    },
+    {
+      name: 'Debt & Fixed Income',
+      currentVal: totalVal * (assetAlloc.debt / 100),
+      currentPct: assetAlloc.debt,
+      targetPct: strategy.debt
+    },
+    {
+      name: 'Gold & Commodities',
+      currentVal: totalVal * (assetAlloc.gold / 100),
+      currentPct: assetAlloc.gold,
+      targetPct: strategy.gold
+    },
+    {
+      name: 'Liquid & Cash',
+      currentVal: totalVal * (assetAlloc.cash / 100),
+      currentPct: assetAlloc.cash,
+      targetPct: strategy.cash
+    }
+  ];
+
+  // Calculate under-allocation gap for fresh inflow distribution
+  const assetUnderAllocGaps = assetBuckets.map(b => {
+    const targetVal = totalVal * (b.targetPct / 100);
+    const deficit = Math.max(0, targetVal - b.currentVal);
+    return deficit;
+  });
+  const totalAssetDeficit = assetUnderAllocGaps.reduce((a, b) => a + b, 0);
+
+  const assetClassItems: import('../types').RebalanceItem[] = assetBuckets.map((b, idx) => {
+    const targetVal = totalVal * (b.targetPct / 100);
+    const driftPct = b.currentPct - b.targetPct;
+    const deltaAmount = targetVal - b.currentVal; // > 0 means BUY, < 0 means SELL
+
+    let actionType: 'BUY' | 'SELL' | 'BALANCED' = 'BALANCED';
+    let status: 'OVERWEIGHT' | 'UNDERWEIGHT' | 'ALIGNED' = 'ALIGNED';
+
+    if (driftPct > 1.5) {
+      actionType = 'SELL';
+      status = 'OVERWEIGHT';
+    } else if (driftPct < -1.5) {
+      actionType = 'BUY';
+      status = 'UNDERWEIGHT';
+    }
+
+    // Inflow distribution share
+    let sipAllocAmount = 0;
+    let sipAllocPct = 0;
+    if (inflowAmount > 0) {
+      if (totalAssetDeficit > 0) {
+        const gap = assetUnderAllocGaps[idx];
+        sipAllocPct = (gap / totalAssetDeficit) * 100;
+        sipAllocAmount = inflowAmount * (sipAllocPct / 100);
+      } else {
+        // If already aligned, distribute purely according to target strategy
+        sipAllocPct = b.targetPct;
+        sipAllocAmount = inflowAmount * (b.targetPct / 100);
+      }
+    }
+
+    return {
+      name: b.name,
+      category: 'Asset Class',
+      currentValue: b.currentVal,
+      currentPct: b.currentPct,
+      targetPct: b.targetPct,
+      targetValue: targetVal,
+      driftPct,
+      actionType,
+      deltaAmount,
+      sipAllocAmount,
+      sipAllocPct,
+      status
+    };
+  });
+
+  // 2. Market Cap Rebalance Items (within Equity portion)
+  const equityVal = marketCapAlloc.totalEquityValue;
+  const mcapBuckets: { name: string; currentVal: number; currentPct: number; targetPct: number }[] = [
+    {
+      name: 'Large Cap',
+      currentVal: marketCapAlloc.largeCapValue,
+      currentPct: marketCapAlloc.largeCap,
+      targetPct: strategy.largeCap
+    },
+    {
+      name: 'Mid Cap',
+      currentVal: marketCapAlloc.midCapValue,
+      currentPct: marketCapAlloc.midCap,
+      targetPct: strategy.midCap
+    },
+    {
+      name: 'Small Cap',
+      currentVal: marketCapAlloc.smallCapValue,
+      currentPct: marketCapAlloc.smallCap,
+      targetPct: strategy.smallCap
+    }
+  ];
+
+  const mcapUnderAllocGaps = mcapBuckets.map(b => {
+    const targetVal = equityVal * (b.targetPct / 100);
+    return Math.max(0, targetVal - b.currentVal);
+  });
+  const totalMcapDeficit = mcapUnderAllocGaps.reduce((a, b) => a + b, 0);
+
+  // Calculate portion of inflow that goes to equity
+  const equityInflow = assetClassItems.find(a => a.name === 'Equity')?.sipAllocAmount || (inflowAmount * (strategy.equity / 100));
+
+  const marketCapItems: import('../types').RebalanceItem[] = mcapBuckets.map((b, idx) => {
+    const targetVal = equityVal * (b.targetPct / 100);
+    const driftPct = b.currentPct - b.targetPct;
+    const deltaAmount = targetVal - b.currentVal;
+
+    let actionType: 'BUY' | 'SELL' | 'BALANCED' = 'BALANCED';
+    let status: 'OVERWEIGHT' | 'UNDERWEIGHT' | 'ALIGNED' = 'ALIGNED';
+
+    if (driftPct > 2.5) {
+      actionType = 'SELL';
+      status = 'OVERWEIGHT';
+    } else if (driftPct < -2.5) {
+      actionType = 'BUY';
+      status = 'UNDERWEIGHT';
+    }
+
+    let sipAllocAmount = 0;
+    let sipAllocPct = 0;
+    if (equityInflow > 0) {
+      if (totalMcapDeficit > 0) {
+        const gap = mcapUnderAllocGaps[idx];
+        sipAllocPct = (gap / totalMcapDeficit) * 100;
+        sipAllocAmount = equityInflow * (sipAllocPct / 100);
+      } else {
+        sipAllocPct = b.targetPct;
+        sipAllocAmount = equityInflow * (b.targetPct / 100);
+      }
+    }
+
+    return {
+      name: b.name,
+      category: 'Market Cap',
+      currentValue: b.currentVal,
+      currentPct: b.currentPct,
+      targetPct: b.targetPct,
+      targetValue: targetVal,
+      driftPct,
+      actionType,
+      deltaAmount,
+      sipAllocAmount,
+      sipAllocPct,
+      status
+    };
+  });
+
+  const totalRebalanceRequired = assetClassItems
+    .filter(i => i.deltaAmount > 0)
+    .reduce((sum, i) => sum + i.deltaAmount, 0);
+
+  const isAligned = assetClassItems.every(i => i.status === 'ALIGNED') && marketCapItems.every(i => i.status === 'ALIGNED');
+
+  return {
+    assetClassItems,
+    marketCapItems,
+    totalPortfolioValue: totalVal,
+    inflowAmount,
+    rebalanceMode,
+    totalRebalanceRequired,
+    isAligned
   };
 }
 

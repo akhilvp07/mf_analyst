@@ -1,5 +1,5 @@
 import { TransactionRecord, MutualFundScheme } from '../types';
-import { cleanFundDisplayName, isValidFolioNumber, normalizeFolioNumber, detectPlanType, detectOptionType } from '../utils/financialCalculations';
+import { cleanFundDisplayName, isValidFolioNumber, normalizeFolioNumber, detectPlanType, detectOptionType, areSchemesEquivalent } from '../utils/financialCalculations';
 
 const STORAGE_KEYS = {
   TRANSACTIONS: 'mftracker_transactions_v2',
@@ -166,7 +166,10 @@ export function exportTransactionsToCsv(transactions: TransactionRecord[]): stri
 /**
  * Parse CAS statements (JSON or CSV format) with comprehensive format support
  */
-export function parseCasStatement(fileContent: string): { 
+export function parseCasStatement(
+  fileContent: string,
+  existingSchemes?: Record<string, MutualFundScheme>
+): { 
   transactions: TransactionRecord[]; 
   detectedSchemes: MutualFundScheme[]; 
   summary: { imported: number; errors: number };
@@ -183,6 +186,27 @@ export function parseCasStatement(fileContent: string): {
   let metaInvestorName: string | undefined;
   let metaPan: string | undefined;
   let metaPeriod: string | undefined;
+
+  const existingList = existingSchemes ? Object.values(existingSchemes) : [];
+
+  const resolveSchemeFromExisting = (rawName: string, isin?: string, defaultCode?: string) => {
+    if (existingList.length === 0) return { code: defaultCode || '122639', name: cleanFundDisplayName(rawName) };
+
+    const clean = cleanFundDisplayName(rawName);
+    if (isin) {
+      const matchByIsin = existingList.find(s => s.isin && s.isin.toUpperCase() === isin.toUpperCase());
+      if (matchByIsin) {
+        return { code: matchByIsin.schemeCode, name: matchByIsin.schemeName };
+      }
+    }
+
+    const matchByName = existingList.find(s => areSchemesEquivalent(s.schemeCode, s.schemeName, defaultCode, clean));
+    if (matchByName) {
+      return { code: matchByName.schemeCode, name: matchByName.schemeName };
+    }
+
+    return { code: defaultCode || '122639', name: clean };
+  };
 
   try {
     // Attempt 1: CAS JSON Format
@@ -237,11 +261,14 @@ export function parseCasStatement(fileContent: string): {
             tType = 'SWITCH_IN';
           }
 
+          const rawCode = String(tx.schemeCode || tx.amfi || tx.scheme_code || '');
+          const resolved = resolveSchemeFromExisting(rawName, tx.isin, rawCode || '122639');
+
           resultTxs.push({
-            id: tx.id || `cas-${idCounter++}`,
+            id: tx.id || `cas-${Date.now()}-${idCounter++}-${Math.random().toString(36).substring(2, 7)}`,
             folioNumber: normalizeFolioNumber(tx.folioNumber || tx.folio || 'FOLIO-1'),
-            schemeCode: String(tx.schemeCode || tx.amfi || tx.scheme_code || '122639'),
-            schemeName: cleanFundDisplayName(rawName),
+            schemeCode: resolved.code,
+            schemeName: resolved.name,
             planType: plan,
             optionType: option,
             type: tType,
@@ -365,11 +392,14 @@ export function parseCasStatement(fileContent: string): {
         const plan = detectPlanType(rawSchemeName, undefined, undefined, 'Direct');
         const option = detectOptionType(rawSchemeName);
 
+        const rawCode = cols[2] || '';
+        const resolved = resolveSchemeFromExisting(rawSchemeName, undefined, rawCode || '122639');
+
         resultTxs.push({
-          id: `csv-${idCounter++}`,
+          id: `csv-${Date.now()}-${idCounter++}-${Math.random().toString(36).substring(2, 7)}`,
           folioNumber: folio,
-          schemeCode,
-          schemeName: cleanFundDisplayName(rawSchemeName),
+          schemeCode: resolved.code,
+          schemeName: resolved.name,
           planType: plan,
           optionType: option,
           type: txType,
