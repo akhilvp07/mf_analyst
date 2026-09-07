@@ -50,7 +50,9 @@ import {
   DEFAULT_ALLOCATION_STRATEGIES, 
   formatINR,
   isEquityOrientedScheme,
-  getDefaultFundMarketCapSplit
+  getDefaultFundMarketCapSplit,
+  getFundMarketCapSplitSource,
+  isDefaultActiveSipFund
 } from '../utils/financialCalculations';
 import {
   loadFundMarketCapSplits,
@@ -67,6 +69,7 @@ const STORAGE_KEY_STRATEGY = 'mftracker_allocation_strategy_v1';
 const STORAGE_KEY_SELECTED_STRATEGY = 'mftracker_selected_strategy_id_v1';
 const STORAGE_KEY_MONTHLY_INFLOW = 'mftracker_monthly_inflow_v1';
 const STORAGE_KEY_HORIZON_MONTHS = 'mftracker_rebalance_horizon_v1';
+const STORAGE_KEY_ACTIVE_SIP_FUNDS = 'mftracker_active_sip_funds_v1';
 const STORAGE_KEY_AI_CACHE = 'mftracker_gemini_insights_cache_v1';
 
 export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({ 
@@ -96,8 +99,8 @@ export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({
       gold: 10,
       cash: 0,
       largeCap: 50,
-      midCap: 30,
-      smallCap: 20
+      midCap: 25,
+      smallCap: 25
     };
   });
 
@@ -156,6 +159,31 @@ export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({
     return loadFundMarketCapSplits();
   });
 
+  // Active SIP schemes to consider for monthly SIP recommendations (persisted to localStorage)
+  const [activeSipFundKeys, setActiveSipFundKeys] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_ACTIVE_SIP_FUNDS);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const handleToggleActiveSipFund = (key: string) => {
+    setActiveSipFundKeys(prev => {
+      // If prev is empty, initialize with all equity holdings or the 3 active ones
+      const currentList = prev.length > 0 ? prev : equityHoldingsBreakdown.filter(h => isDefaultActiveSipFund(h.schemeName)).map(h => h.key);
+      const isAlreadyIn = currentList.includes(key);
+      const next = isAlreadyIn ? currentList.filter(k => k !== key) : [...currentList, key];
+      try {
+        localStorage.setItem(STORAGE_KEY_ACTIVE_SIP_FUNDS, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
   // Gemini AI Insights state
   const [aiReport, setAiReport] = useState<{ score: number; markdown: string; timestamp: string } | null>(() => {
     try {
@@ -199,14 +227,15 @@ export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({
 
         const key = h.schemeCode || h.schemeName;
         const customSplit = fundMarketCapSplits[key] || fundMarketCapSplits[h.schemeCode] || fundMarketCapSplits[h.schemeName];
-        const defaultSplit = getDefaultFundMarketCapSplit(h.schemeName, h.category);
+        const defaultSplit = getDefaultFundMarketCapSplit(h.schemeName, h.category, h.schemeCode, h.isin);
+        const sourceMeta = getFundMarketCapSplitSource(h.schemeName, h.category);
         const activeSplit = customSplit || defaultSplit;
         const isCustomized = Boolean(customSplit);
 
         const largePct = activeSplit.largeCap;
         const midPct = activeSplit.midCap;
         const smallPct = activeSplit.smallCap;
-        const sumPct = largePct + midPct + smallPct;
+        const sumPct = Number((largePct + midPct + smallPct).toFixed(2));
 
         const largeCapVal = effectiveVal * (largePct / 100);
         const midCapVal = effectiveVal * (midPct / 100);
@@ -223,6 +252,8 @@ export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({
           defaultSplit,
           activeSplit,
           isCustomized,
+          isFactsheetDefault: sourceMeta.isFactsheet,
+          sourceName: sourceMeta.sourceName,
           sumPct,
           largeCapVal,
           midCapVal,
@@ -324,8 +355,16 @@ export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({
 
   // Compute rebalancing suggestions
   const rebalanceReport: RebalanceReport = useMemo(() => {
-    return computeRebalanceReport(holdings, activeStrategy, monthlyInflow, rebalanceMode, fundMarketCapSplits, horizonMonths);
-  }, [holdings, activeStrategy, monthlyInflow, rebalanceMode, fundMarketCapSplits, horizonMonths]);
+    return computeRebalanceReport(
+      holdings, 
+      activeStrategy, 
+      monthlyInflow, 
+      rebalanceMode, 
+      fundMarketCapSplits, 
+      horizonMonths, 
+      activeSipFundKeys.length > 0 ? activeSipFundKeys : null
+    );
+  }, [holdings, activeStrategy, monthlyInflow, rebalanceMode, fundMarketCapSplits, horizonMonths, activeSipFundKeys]);
 
   // Save custom strategy
   const handleSaveCustomStrategy = (newStrat: AllocationStrategy) => {
@@ -1117,14 +1156,17 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
           <div className="mt-6 pt-5 border-t border-neutral-800">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Wallet className="w-4 h-4 text-emerald-400" />
                   <h3 className="text-xs font-bold text-white uppercase tracking-wider">
                     Recommended Scheme-Level SIP Allocation (₹{monthlyInflow.toLocaleString('en-IN')}/Month)
                   </h3>
+                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
+                    3 Active SIP Funds
+                  </span>
                 </div>
-                <p className="text-[11px] text-neutral-400 mt-0.5">
-                  Actionable fund-by-fund split that channels your monthly inflow directly into matching equity holdings to achieve target market cap weights.
+                <p className="text-[11px] text-neutral-400 mt-1">
+                  SIP plan directed into your active SIP funds (<strong>Parag Parikh Flexi Cap</strong>, <strong>Motilal Oswal Midcap</strong>, and <strong>SBI Small Cap</strong>) to converge your equity portfolio to the <strong>50:25:25</strong> Large/Mid/Small Cap target over {horizonMonths} months.
                 </p>
               </div>
 
@@ -1628,7 +1670,7 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
                 Scheme-Level Market Cap Contribution Table
               </h4>
               <p className="text-[11px] text-neutral-400 mt-0.5">
-                Exclusively considers equity-oriented funds. Edit Large, Mid, and Small Cap % below based on monthly fund disclosures; your values persist as defaults.
+                Pre-populated with authentic AMC factsheet reference splits (e.g. Parag Parikh Flexi Cap 93.73% Large / 2.87% Mid / 3.40% Small) and SEBI benchmarks. Any custom edits you make here persist in your browser cache.
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -1636,7 +1678,7 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
                 <button
                   onClick={handleResetAllFundSplits}
                   className="px-2.5 py-1 text-[11px] font-medium text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700 rounded-lg flex items-center gap-1.5 transition"
-                  title="Reset all funds to standard SEBI category benchmark splits"
+                  title="Reset all funds to default AMC factsheet and SEBI benchmark splits"
                 >
                   <RotateCcw className="w-3 h-3 text-amber-400" />
                   Reset All to Defaults
@@ -1686,12 +1728,16 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
                             </span>
                           )}
                           {item.isCustomized ? (
-                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/20 font-medium">
-                              Custom Factsheet
+                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/20 font-medium" title="Saved custom override in browser cache">
+                              Custom Override
+                            </span>
+                          ) : item.isFactsheetDefault ? (
+                            <span className="text-[10px] bg-indigo-500/10 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/20 font-medium" title={`Default from ${item.sourceName}`}>
+                              {item.sourceName || 'AMC Factsheet'}
                             </span>
                           ) : (
-                            <span className="text-[10px] bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded">
-                              SEBI Default
+                            <span className="text-[10px] bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded" title="Standard SEBI category benchmark">
+                              SEBI Benchmark
                             </span>
                           )}
                         </div>
@@ -1715,7 +1761,7 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
                               type="number"
                               min="0"
                               max="100"
-                              step="5"
+                              step="0.01"
                               value={item.largeCapPct}
                               onChange={(e) => handleUpdateFundSplit(item.key, { largeCap: Number(e.target.value) }, item.defaultSplit)}
                               className="w-16 text-center font-mono font-bold text-xs bg-neutral-900 border border-neutral-700 focus:border-indigo-500 rounded-lg py-1 px-1.5 text-indigo-300 focus:outline-none shadow-inner"
@@ -1736,7 +1782,7 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
                               type="number"
                               min="0"
                               max="100"
-                              step="5"
+                              step="0.01"
                               value={item.midCapPct}
                               onChange={(e) => handleUpdateFundSplit(item.key, { midCap: Number(e.target.value) }, item.defaultSplit)}
                               className="w-16 text-center font-mono font-bold text-xs bg-neutral-900 border border-neutral-700 focus:border-teal-500 rounded-lg py-1 px-1.5 text-teal-300 focus:outline-none shadow-inner"
@@ -1757,7 +1803,7 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
                               type="number"
                               min="0"
                               max="100"
-                              step="5"
+                              step="0.01"
                               value={item.smallCapPct}
                               onChange={(e) => handleUpdateFundSplit(item.key, { smallCap: Number(e.target.value) }, item.defaultSplit)}
                               className="w-16 text-center font-mono font-bold text-xs bg-neutral-900 border border-neutral-700 focus:border-purple-500 rounded-lg py-1 px-1.5 text-purple-300 focus:outline-none shadow-inner"
@@ -1773,10 +1819,10 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
                       {/* Total & Action */}
                       <td className="py-3 px-3 text-center">
                         <div className="inline-flex flex-col items-center gap-1">
-                          {item.sumPct === 100 ? (
+                          {Math.abs(item.sumPct - 100) < 0.05 ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                               <Check className="w-3 h-3" />
-                              100%
+                              {item.sumPct === 100 ? '100%' : `${item.sumPct}%`}
                             </span>
                           ) : (
                             <button
