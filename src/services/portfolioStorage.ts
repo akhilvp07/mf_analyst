@@ -1,10 +1,11 @@
-import { TransactionRecord, MutualFundScheme } from '../types';
+import { TransactionRecord, MutualFundScheme, FundMarketCapSplit } from '../types';
 import { cleanFundDisplayName, isValidFolioNumber, normalizeFolioNumber, detectPlanType, detectOptionType, areSchemesEquivalent } from '../utils/financialCalculations';
 
 const STORAGE_KEYS = {
   TRANSACTIONS: 'mftracker_transactions_v2',
   CUSTOM_SCHEMES: 'mftracker_custom_schemes_v2',
-  SETTINGS: 'mftracker_settings_v2'
+  SETTINGS: 'mftracker_settings_v2',
+  FUND_MCAP_SPLITS: 'mftracker_fund_mcap_splits_v1'
 };
 
 export interface AppSettings {
@@ -123,6 +124,32 @@ export function saveSettings(settings: AppSettings): void {
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
   } catch (err) {
     console.error('Failed to save settings:', err);
+  }
+}
+
+/**
+ * Load user-defined fund market cap splits (large, mid, small percentages)
+ */
+export function loadFundMarketCapSplits(): Record<string, FundMarketCapSplit> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.FUND_MCAP_SPLITS);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (err) {
+    console.error('Failed to load fund market cap splits:', err);
+  }
+  return {};
+}
+
+/**
+ * Save user-defined fund market cap splits
+ */
+export function saveFundMarketCapSplits(splits: Record<string, FundMarketCapSplit>): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.FUND_MCAP_SPLITS, JSON.stringify(splits));
+  } catch (err) {
+    console.error('Failed to save fund market cap splits:', err);
   }
 }
 

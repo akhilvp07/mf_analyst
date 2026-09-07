@@ -36,7 +36,7 @@ export const SipSimulator: React.FC<SipSimulatorProps> = ({ summary, holdings = 
   // Toggle to include current portfolio as initial corpus
   const [includePortfolio, setIncludePortfolio] = useState<boolean>(currentPortfolioVal > 0);
   const [initialLumpSum, setInitialLumpSum] = useState<number>(currentPortfolioVal > 0 ? currentPortfolioVal : 100000);
-  const [monthlySip, setMonthlySip] = useState<number>(25000);
+  const [monthlySip, setMonthlySip] = useState<number>(45000);
   const [expectedCagr, setExpectedCagr] = useState<number>(14.0);
   const [years, setYears] = useState<number>(15);
   const [stepUpPercent, setStepUpPercent] = useState<number>(10);
@@ -304,7 +304,7 @@ export const SipSimulator: React.FC<SipSimulatorProps> = ({ summary, holdings = 
 
             {/* Presets */}
             <div className="flex items-center gap-1.5 pt-0.5">
-              {[10000, 25000, 50000, 100000].map((amt) => (
+              {[10000, 25000, 45000, 50000, 100000].map((amt) => (
                 <button
                   key={amt}
                   type="button"
@@ -315,7 +315,7 @@ export const SipSimulator: React.FC<SipSimulatorProps> = ({ summary, holdings = 
                       : 'bg-neutral-800/60 text-neutral-400 hover:text-neutral-200 border border-neutral-800'
                   }`}
                 >
-                  {formatINR(amt, true)}
+                  {amt === 45000 ? '₹45k' : formatINR(amt, true)}
                 </button>
               ))}
             </div>

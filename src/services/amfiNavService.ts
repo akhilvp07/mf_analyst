@@ -376,6 +376,71 @@ const SEED_AMFI_RECORDS: Record<string, AmfiNavRecord> = {
     fundHouse: 'Axis Mutual Fund',
     category: 'Equity - ELSS'
   },
+  // UTI Gold ETF Fund of Fund (Direct - Growth)
+  'INF789F01FG7': {
+    schemeCode: '120718',
+    isin: 'INF789F01FG7',
+    isinGrowth: 'INF789F01FG7',
+    schemeName: 'UTI Gold ETF Fund of Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 28.45,
+    navDate: '2026-08-31',
+    fundHouse: 'UTI Mutual Fund',
+    category: 'Gold & Commodities'
+  },
+  // UTI Gold ETF Fund of Fund (Regular - Growth)
+  'INF789F01757': {
+    schemeCode: '105740',
+    isin: 'INF789F01757',
+    isinGrowth: 'INF789F01757',
+    schemeName: 'UTI Gold ETF Fund of Fund',
+    planType: 'Regular',
+    optionType: 'Growth',
+    currentNav: 26.12,
+    navDate: '2026-08-31',
+    fundHouse: 'UTI Mutual Fund',
+    category: 'Gold & Commodities'
+  },
+  // Tata Arbitrage Fund (Direct - Growth)
+  'INF277K01700': {
+    schemeCode: '145554',
+    isin: 'INF277K01700',
+    isinGrowth: 'INF277K01700',
+    schemeName: 'Tata Arbitrage Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 14.82,
+    navDate: '2026-08-31',
+    fundHouse: 'Tata Mutual Fund',
+    category: 'Debt - Arbitrage / Income Plus'
+  },
+  // HDFC Arbitrage Fund (Direct - Growth)
+  'INF179K01VJ1': {
+    schemeCode: '120612',
+    isin: 'INF179K01VJ1',
+    isinGrowth: 'INF179K01VJ1',
+    schemeName: 'HDFC Arbitrage Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 29.65,
+    navDate: '2026-08-31',
+    fundHouse: 'HDFC Mutual Fund',
+    category: 'Debt - Arbitrage / Income Plus'
+  },
+  // HDFC Income Plus Arbitrage Fund (Direct - Growth)
+  'INF179K01WS9': {
+    schemeCode: '128954',
+    isin: 'INF179K01WS9',
+    isinGrowth: 'INF179K01WS9',
+    schemeName: 'HDFC Income Plus Arbitrage Fund',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 31.40,
+    navDate: '2026-08-31',
+    fundHouse: 'HDFC Mutual Fund',
+    category: 'Debt - Arbitrage / Income Plus'
+  },
   // Parag Parikh Flexi Cap Fund (Direct - Growth)
   'INF879O01027': {
     schemeCode: '122639',

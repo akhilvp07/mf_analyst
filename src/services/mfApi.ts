@@ -144,7 +144,24 @@ export const KNOWN_ISIN_MAP: Record<string, {
 
   // Axis Small Cap Fund
   'INF846K01K35': { schemeCode: '120465', schemeName: 'Axis Small Cap Fund', fundHouse: 'Axis Mutual Fund', category: 'Equity - Small Cap', planType: 'Direct', optionType: 'Growth' },
-  'INF846K01230': { schemeCode: '125354', schemeName: 'Axis Small Cap Fund', fundHouse: 'Axis Mutual Fund', category: 'Equity - Small Cap', planType: 'Regular', optionType: 'Growth' }
+  'INF846K01230': { schemeCode: '125354', schemeName: 'Axis Small Cap Fund', fundHouse: 'Axis Mutual Fund', category: 'Equity - Small Cap', planType: 'Regular', optionType: 'Growth' },
+
+  // UTI Gold ETF Fund of Fund
+  'INF789F01FG7': { schemeCode: '120718', schemeName: 'UTI Gold ETF Fund of Fund', fundHouse: 'UTI Mutual Fund', category: 'Gold & Commodities', planType: 'Direct', optionType: 'Growth' },
+  'INF789F01757': { schemeCode: '105740', schemeName: 'UTI Gold ETF Fund of Fund', fundHouse: 'UTI Mutual Fund', category: 'Gold & Commodities', planType: 'Regular', optionType: 'Growth' },
+
+  // Nippon India ETF Gold BeES
+  'INF204KB17I5': { schemeCode: '105759', schemeName: 'Nippon India ETF Gold BeES', fundHouse: 'Nippon India Mutual Fund', category: 'Gold & Commodities', planType: 'Direct', optionType: 'Growth' },
+  'INF204K01880': { schemeCode: '119782', schemeName: 'Nippon India Gold Savings Fund', fundHouse: 'Nippon India Mutual Fund', category: 'Gold & Commodities', planType: 'Direct', optionType: 'Growth' },
+
+  // Tata Arbitrage Fund
+  'INF277K01700': { schemeCode: '145554', schemeName: 'Tata Arbitrage Fund', fundHouse: 'Tata Mutual Fund', category: 'Debt - Arbitrage / Income Plus', planType: 'Direct', optionType: 'Growth' },
+  'INF277K01684': { schemeCode: '145552', schemeName: 'Tata Arbitrage Fund', fundHouse: 'Tata Mutual Fund', category: 'Debt - Arbitrage / Income Plus', planType: 'Regular', optionType: 'Growth' },
+
+  // HDFC Arbitrage Fund / Income Plus Arbitrage
+  'INF179K01VJ1': { schemeCode: '120612', schemeName: 'HDFC Arbitrage Fund', fundHouse: 'HDFC Mutual Fund', category: 'Debt - Arbitrage / Income Plus', planType: 'Direct', optionType: 'Growth' },
+  'INF179K01231': { schemeCode: '105779', schemeName: 'HDFC Arbitrage Fund', fundHouse: 'HDFC Mutual Fund', category: 'Debt - Arbitrage / Income Plus', planType: 'Regular', optionType: 'Growth' },
+  'INF179K01WS9': { schemeCode: '128954', schemeName: 'HDFC Income Plus Arbitrage Fund', fundHouse: 'HDFC Mutual Fund', category: 'Debt - Arbitrage / Income Plus', planType: 'Direct', optionType: 'Growth' }
 };
 
 // Known scheme catalog to accelerate direct matching
@@ -346,6 +363,30 @@ export const KNOWN_SCHEMES_MAP: Record<string, {
     navDate: '2026-08-31',
     navChange1D: 0.40,
     isin: 'INF846K01131'
+  },
+  '120718': {
+    schemeCode: '120718',
+    schemeName: 'UTI Gold ETF Fund of Fund',
+    fundHouse: 'UTI Mutual Fund',
+    category: 'Gold & Commodities',
+    planType: 'Direct',
+    optionType: 'Growth',
+    currentNav: 28.4510,
+    navDate: '2026-08-31',
+    navChange1D: 0.15,
+    isin: 'INF789F01FG7'
+  },
+  '105740': {
+    schemeCode: '105740',
+    schemeName: 'UTI Gold ETF Fund of Fund',
+    fundHouse: 'UTI Mutual Fund',
+    category: 'Gold & Commodities',
+    planType: 'Regular',
+    optionType: 'Growth',
+    currentNav: 26.1240,
+    navDate: '2026-08-31',
+    navChange1D: 0.15,
+    isin: 'INF789F01757'
   },
   '120828': {
     schemeCode: '120828',

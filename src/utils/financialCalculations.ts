@@ -245,8 +245,52 @@ export function detectFundCategory(schemeName: string): string {
   if (!schemeName) return 'Equity - Others';
   const text = schemeName.toLowerCase();
 
+  // 1. Gold, Silver & Commodities (SEBI Non-Equity / Commodity Basket)
+  if (
+    text.includes('gold') || 
+    text.includes('silver') || 
+    text.includes('commodity') || 
+    text.includes('commodities') || 
+    text.includes('precious metal')
+  ) {
+    return 'Gold & Commodities';
+  }
+
+  // 2. Liquid, Overnight & Cash
+  if (text.includes('liquid') || text.includes('overnight') || text.includes('money market')) {
+    return 'Debt - Liquid / Cash';
+  }
+
+  // 3. Arbitrage & Income Plus Arbitrage (Treated as Debt / Fixed Income for asset allocation and risk budgeting)
+  if (
+    text.includes('arbitrage') || 
+    text.includes('income plus') || 
+    text.includes('income + arbitrage') ||
+    text.includes('income plus arbitrage')
+  ) {
+    return 'Debt - Arbitrage / Income Plus';
+  }
+
+  // 4. Fixed Income & Debt
+  if (
+    text.includes('gilt') || 
+    text.includes('corporate bond') || 
+    text.includes('banking & psu') || 
+    text.includes('duration') || 
+    text.includes('debt') ||
+    text.includes('floater') ||
+    text.includes('credit risk')
+  ) {
+    return 'Debt - Fixed Income';
+  }
+
+  // 5. Hybrids
+  if (text.includes('balanced advantage') || text.includes('dynamic asset')) return 'Hybrid - Balanced Advantage';
+  if (text.includes('aggressive hybrid') || text.includes('balanced hybrid') || text.includes('multi asset') || text.includes('equity savings')) return 'Hybrid - Multi Asset';
+
+  // 5. Equity SEBI Categories
   if (text.includes('flexi cap') || text.includes('flexicap')) return 'Equity - Flexi Cap';
-  if (text.includes('large & mid') || text.includes('large and mid')) return 'Equity - Large & Mid Cap';
+  if (text.includes('large & mid') || text.includes('large and mid') || text.includes('large & midcap')) return 'Equity - Large & Mid Cap';
   if (text.includes('large cap') || text.includes('bluechip') || text.includes('top 100')) return 'Equity - Large Cap';
   if (text.includes('mid cap') || text.includes('midcap') || text.includes('emerging')) return 'Equity - Mid Cap';
   if (text.includes('small cap') || text.includes('smallcap')) return 'Equity - Small Cap';
@@ -254,12 +298,6 @@ export function detectFundCategory(schemeName: string): string {
   if (text.includes('elss') || text.includes('tax saver') || text.includes('long term equity')) return 'Equity - ELSS';
   if (text.includes('nifty 50') || text.includes('sensex') || text.includes('nifty next 50') || text.includes('index fund')) return 'Other - Index Fund';
   if (text.includes('nasdaq') || text.includes('fof') || text.includes('fund of fund') || text.includes('international') || text.includes('global') || text.includes('us equity')) return 'Other - International FoF';
-  if (text.includes('liquid') || text.includes('overnight') || text.includes('money market')) return 'Debt - Liquid / Cash';
-  if (text.includes('gilt') || text.includes('corporate bond') || text.includes('banking & psu') || text.includes('duration') || text.includes('debt')) return 'Debt - Fixed Income';
-  if (text.includes('arbitrage')) return 'Hybrid - Arbitrage';
-  if (text.includes('balanced advantage') || text.includes('dynamic asset')) return 'Hybrid - Balanced Advantage';
-  if (text.includes('aggressive hybrid') || text.includes('balanced hybrid') || text.includes('multi asset') || text.includes('equity savings')) return 'Hybrid - Multi Asset';
-  if (text.includes('gold') || text.includes('silver') || text.includes('commodity')) return 'Commodities - Gold/Silver';
 
   return 'Equity - Others';
 }
@@ -790,9 +828,20 @@ export function computeAssetAllocation(holdings: PortfolioHolding[]): AssetAlloc
 
     if (cat.includes('liquid') || cat.includes('overnight') || cat.includes('money market')) {
       cash += h.currentValue;
-    } else if (cat.includes('debt') || cat.includes('gilt') || cat.includes('duration') || cat.includes('bond') || cat.includes('banking & psu')) {
+    } else if (
+      cat.includes('debt') || 
+      cat.includes('gilt') || 
+      cat.includes('duration') || 
+      cat.includes('bond') || 
+      cat.includes('banking & psu') ||
+      cat.includes('arbitrage') ||
+      name.includes('arbitrage') ||
+      name.includes('income plus') ||
+      name.includes('income +')
+    ) {
+      // Arbitrage and Debt+Arbitrage funds count as Debt allocation
       debt += h.currentValue;
-    } else if (cat.includes('hybrid') || cat.includes('balanced') || cat.includes('multi asset') || cat.includes('arbitrage') || cat.includes('equity savings')) {
+    } else if (cat.includes('hybrid') || cat.includes('balanced') || cat.includes('multi asset') || cat.includes('equity savings')) {
       hybrid += h.currentValue;
     } else if (cat.includes('gold') || cat.includes('silver') || cat.includes('commodity') || name.includes('gold') || name.includes('silver')) {
       gold += h.currentValue;
@@ -1933,8 +1982,20 @@ export function analyzeTransactionsMerge(
  */
 export const DEFAULT_ALLOCATION_STRATEGIES: import('../types').AllocationStrategy[] = [
   {
+    id: 'strategic_core_70_20_10',
+    name: 'Strategic Core (70:20:10)',
+    description: '70% Equity (compounding growth), 20% Debt & Arbitrage (stability & safety cushion), 10% Gold (hedge).',
+    equity: 70,
+    debt: 20,
+    gold: 10,
+    cash: 0,
+    largeCap: 50,
+    midCap: 30,
+    smallCap: 20
+  },
+  {
     id: 'aggressive_wealth',
-    name: 'Aggressive Wealth Growth',
+    name: 'Aggressive Wealth (80:15:5)',
     description: '80% Equity (focus on high alpha & mid-caps), 15% Debt, 5% Gold. Suited for 7+ years horizon.',
     equity: 80,
     debt: 15,
@@ -1946,7 +2007,7 @@ export const DEFAULT_ALLOCATION_STRATEGIES: import('../types').AllocationStrateg
   },
   {
     id: 'balanced_core',
-    name: 'Balanced Long-Term Core',
+    name: 'Balanced Long-Term (65:25:10)',
     description: '65% Equity (large cap stability), 25% Debt, 10% Gold. Balanced risk-reward for 5-7 years.',
     equity: 65,
     debt: 25,
@@ -1958,7 +2019,7 @@ export const DEFAULT_ALLOCATION_STRATEGIES: import('../types').AllocationStrateg
   },
   {
     id: 'conservative_shield',
-    name: 'Conservative Capital Preserver',
+    name: 'Conservative Shield (40:50:10)',
     description: '40% Equity, 50% Debt, 10% Gold. Priority on capital preservation with low volatility.',
     equity: 40,
     debt: 50,
@@ -1970,7 +2031,7 @@ export const DEFAULT_ALLOCATION_STRATEGIES: import('../types').AllocationStrateg
   },
   {
     id: 'pure_equity_alpha',
-    name: '100% Pure Equity Alpha',
+    name: '100% Pure Equity Alpha (100:0:0)',
     description: '100% Equity diversified across market capitalizations. Maximum wealth compounding potential.',
     equity: 100,
     debt: 0,
@@ -1983,75 +2044,153 @@ export const DEFAULT_ALLOCATION_STRATEGIES: import('../types').AllocationStrateg
 ];
 
 /**
- * Accurately estimates Market-Cap breakdown (Large, Mid, Small Cap) from portfolio equity holdings
+ * Check if a fund is an Equity-Oriented scheme eligible for Market Cap breakdown.
+ * Excludes Debt, Liquid, Cash, Arbitrage, Gold, Silver, and Commodities.
  */
-export function computeMarketCapAllocation(holdings: PortfolioHolding[]): import('../types').MarketCapAllocation {
+export function isEquityOrientedScheme(schemeName: string, category: string): boolean {
+  const cat = (category || '').toLowerCase();
+  const name = (schemeName || '').toLowerCase();
+
+  // Explicit Non-Equity exclusions:
+  if (
+    cat.includes('gold') ||
+    cat.includes('silver') ||
+    cat.includes('commodity') ||
+    cat.includes('commodities') ||
+    cat.includes('precious metal') ||
+    name.includes('gold') ||
+    name.includes('silver') ||
+    name.includes('commodity') ||
+    name.includes('commodities')
+  ) {
+    return false;
+  }
+
+  if (
+    cat.includes('liquid') ||
+    cat.includes('overnight') ||
+    cat.includes('money market') ||
+    cat.includes('debt') ||
+    cat.includes('gilt') ||
+    cat.includes('duration') ||
+    cat.includes('bond') ||
+    cat.includes('banking & psu') ||
+    cat.includes('floater') ||
+    cat.includes('credit risk') ||
+    cat.includes('arbitrage') ||
+    name.includes('liquid fund') ||
+    name.includes('overnight fund') ||
+    name.includes('arbitrage') ||
+    name.includes('income plus') ||
+    name.includes('income +')
+  ) {
+    return false;
+  }
+
+  // Equity schemes and Equity-containing Hybrids
+  return (
+    cat.includes('equity') ||
+    cat.includes('index') ||
+    cat.includes('hybrid') ||
+    cat.includes('balanced') ||
+    cat.includes('multi asset') ||
+    cat.includes('flexi') ||
+    cat.includes('cap') ||
+    cat.includes('elss') ||
+    cat.includes('tax saver') ||
+    name.includes('equity') ||
+    name.includes('cap') ||
+    name.includes('elss') ||
+    name.includes('index') ||
+    name.includes('nifty') ||
+    name.includes('sensex') ||
+    name.includes('fund of fund') ||
+    name.includes('fof') ||
+    name.includes('nasdaq') ||
+    name.includes('hybrid') ||
+    name.includes('advantage')
+  );
+}
+
+/**
+ * Returns the default SEBI / benchmark market cap split (Large, Mid, Small %) for a scheme.
+ */
+export function getDefaultFundMarketCapSplit(schemeName: string, category: string): import('../types').FundMarketCapSplit {
+  const cat = (category || '').toLowerCase();
+  const name = (schemeName || '').toLowerCase();
+
+  if (cat.includes('small cap') || cat.includes('smallcap') || name.includes('small cap') || name.includes('smallcap')) {
+    return { largeCap: 0, midCap: 15, smallCap: 85 };
+  }
+  if (cat.includes('mid cap') || cat.includes('midcap') || name.includes('mid cap') || name.includes('midcap') || name.includes('emerging')) {
+    return { largeCap: 15, midCap: 80, smallCap: 5 };
+  }
+  if (cat.includes('large & mid') || cat.includes('large and mid') || name.includes('large & mid') || name.includes('large & midcap')) {
+    return { largeCap: 50, midCap: 45, smallCap: 5 };
+  }
+  if (cat.includes('large cap') || name.includes('large cap') || name.includes('bluechip') || name.includes('top 100') || name.includes('nifty 50') || name.includes('sensex')) {
+    return { largeCap: 90, midCap: 10, smallCap: 0 };
+  }
+  if (cat.includes('flexi cap') || cat.includes('flexicap') || name.includes('flexi cap') || name.includes('flexicap')) {
+    return { largeCap: 65, midCap: 25, smallCap: 10 };
+  }
+  if (cat.includes('multi cap') || cat.includes('multicap') || name.includes('multi cap')) {
+    return { largeCap: 40, midCap: 35, smallCap: 25 };
+  }
+  if (cat.includes('elss') || cat.includes('tax saver') || cat.includes('long term equity')) {
+    return { largeCap: 70, midCap: 20, smallCap: 10 };
+  }
+  if (name.includes('nifty midcap') || name.includes('midcap 150')) {
+    return { largeCap: 0, midCap: 100, smallCap: 0 };
+  }
+  if (name.includes('nifty smallcap') || name.includes('smallcap 250')) {
+    return { largeCap: 0, midCap: 0, smallCap: 100 };
+  }
+  if (name.includes('nifty 500') || name.includes('500 index')) {
+    return { largeCap: 72, midCap: 18, smallCap: 10 };
+  }
+
+  // Other general equity / thematic / hybrid equity portion
+  return { largeCap: 60, midCap: 25, smallCap: 15 };
+}
+
+/**
+ * Accurately estimates Market-Cap breakdown (Large, Mid, Small Cap) from portfolio equity holdings,
+ * taking into account any custom user overrides saved from monthly disclosures.
+ */
+export function computeMarketCapAllocation(
+  holdings: PortfolioHolding[],
+  splitsMap?: Record<string, import('../types').FundMarketCapSplit>
+): import('../types').MarketCapAllocation {
   let largeCapValue = 0;
   let midCapValue = 0;
   let smallCapValue = 0;
   let totalEquityValue = 0;
 
   holdings.forEach(h => {
-    const cat = (h.category || '').toLowerCase();
-    const name = (h.schemeName || '').toLowerCase();
-
-    // Skip pure debt, liquid, and gold schemes from equity market cap calculation
-    if (
-      cat.includes('liquid') || 
-      cat.includes('overnight') || 
-      cat.includes('money market') ||
-      cat.includes('debt') || 
-      cat.includes('gilt') || 
-      cat.includes('duration') || 
-      cat.includes('bond') || 
-      cat.includes('gold') || 
-      cat.includes('silver') || 
-      cat.includes('commodity') ||
-      name.includes('gold be') ||
-      name.includes('liquid fund')
-    ) {
+    // Exclude non-equity funds (Debt, Liquid, Gold, Silver, Commodities, Arbitrage)
+    if (!isEquityOrientedScheme(h.schemeName, h.category)) {
       return;
     }
 
+    const cat = (h.category || '').toLowerCase();
     // Hybrid schemes: treat approx 65% as equity
     const equityPortionMultiplier = (cat.includes('hybrid') || cat.includes('balanced') || cat.includes('multi asset')) ? 0.65 : 1.0;
     const effectiveEquityVal = h.currentValue * equityPortionMultiplier;
     totalEquityValue += effectiveEquityVal;
 
-    if (cat.includes('small cap') || cat.includes('smallcap') || name.includes('small cap') || name.includes('smallcap')) {
-      smallCapValue += effectiveEquityVal * 0.85;
-      midCapValue += effectiveEquityVal * 0.15;
-    } else if (cat.includes('mid cap') || cat.includes('midcap') || name.includes('mid cap') || name.includes('midcap') || name.includes('emerging')) {
-      midCapValue += effectiveEquityVal * 0.80;
-      largeCapValue += effectiveEquityVal * 0.15;
-      smallCapValue += effectiveEquityVal * 0.05;
-    } else if (cat.includes('large & mid') || cat.includes('large and mid') || name.includes('large & mid')) {
-      largeCapValue += effectiveEquityVal * 0.50;
-      midCapValue += effectiveEquityVal * 0.45;
-      smallCapValue += effectiveEquityVal * 0.05;
-    } else if (cat.includes('large cap') || name.includes('large cap') || name.includes('bluechip') || name.includes('top 100') || name.includes('nifty 50') || name.includes('sensex')) {
-      largeCapValue += effectiveEquityVal * 0.90;
-      midCapValue += effectiveEquityVal * 0.10;
-    } else if (cat.includes('flexi cap') || cat.includes('flexicap') || name.includes('flexi cap') || name.includes('flexicap')) {
-      // Flexi cap funds typically hold ~65% Large, ~25% Mid, ~10% Small
-      largeCapValue += effectiveEquityVal * 0.65;
-      midCapValue += effectiveEquityVal * 0.25;
-      smallCapValue += effectiveEquityVal * 0.10;
-    } else if (cat.includes('multi cap') || cat.includes('multicap') || name.includes('multi cap')) {
-      // SEBI mandate requires min 25% Large, 25% Mid, 25% Small
-      largeCapValue += effectiveEquityVal * 0.40;
-      midCapValue += effectiveEquityVal * 0.35;
-      smallCapValue += effectiveEquityVal * 0.25;
-    } else if (cat.includes('elss') || cat.includes('tax saver')) {
-      largeCapValue += effectiveEquityVal * 0.70;
-      midCapValue += effectiveEquityVal * 0.20;
-      smallCapValue += effectiveEquityVal * 0.10;
-    } else {
-      // Other general equity/thematic
-      largeCapValue += effectiveEquityVal * 0.60;
-      midCapValue += effectiveEquityVal * 0.25;
-      smallCapValue += effectiveEquityVal * 0.15;
-    }
+    // Check user override first, fallback to default category split
+    const override = splitsMap?.[h.schemeCode] || splitsMap?.[h.schemeName];
+    const split = override || getDefaultFundMarketCapSplit(h.schemeName, h.category);
+
+    const sumPct = (split.largeCap + split.midCap + split.smallCap) || 100;
+    const normLarge = split.largeCap / sumPct;
+    const normMid = split.midCap / sumPct;
+    const normSmall = split.smallCap / sumPct;
+
+    largeCapValue += effectiveEquityVal * normLarge;
+    midCapValue += effectiveEquityVal * normMid;
+    smallCapValue += effectiveEquityVal * normSmall;
   });
 
   const largeCap = totalEquityValue > 0 ? (largeCapValue / totalEquityValue) * 100 : 0;
@@ -2071,18 +2210,22 @@ export function computeMarketCapAllocation(holdings: PortfolioHolding[]): import
 
 /**
  * Intelligent Portfolio Rebalancing Engine
- * Computes asset class drift, equity market cap drift, direct realignment amounts,
- * and tax-efficient fresh inflow / SIP distributions.
+ * Focuses monthly SIP (default ₹45,000) 100% into Equity funds to dynamically correct
+ * Large, Mid, and Small Cap market cap drift toward target ratios.
+ * Debt and Gold rebalancing are computed as manual rebalancing recommendations.
  */
 export function computeRebalanceReport(
   holdings: PortfolioHolding[],
   strategy: import('../types').AllocationStrategy,
-  inflowAmount: number = 25000,
-  rebalanceMode: 'SIP_INFLOW' | 'DIRECT_REALIGNMENT' = 'SIP_INFLOW'
+  inflowAmount: number = 45000,
+  rebalanceMode: 'SIP_INFLOW' | 'DIRECT_REALIGNMENT' = 'SIP_INFLOW',
+  splitsMap?: Record<string, import('../types').FundMarketCapSplit>,
+  horizonMonths: number = 12
 ): import('../types').RebalanceReport {
   const totalVal = holdings.reduce((sum, h) => sum + h.currentValue, 0);
   const assetAlloc = computeAssetAllocation(holdings);
-  const marketCapAlloc = computeMarketCapAllocation(holdings);
+  const marketCapAlloc = computeMarketCapAllocation(holdings, splitsMap);
+  const effectiveHorizon = Math.max(1, horizonMonths || 12);
 
   // 1. Asset Class Rebalance Items
   const assetBuckets: { name: string; currentVal: number; currentPct: number; targetPct: number }[] = [
@@ -2112,15 +2255,7 @@ export function computeRebalanceReport(
     }
   ];
 
-  // Calculate under-allocation gap for fresh inflow distribution
-  const assetUnderAllocGaps = assetBuckets.map(b => {
-    const targetVal = totalVal * (b.targetPct / 100);
-    const deficit = Math.max(0, targetVal - b.currentVal);
-    return deficit;
-  });
-  const totalAssetDeficit = assetUnderAllocGaps.reduce((a, b) => a + b, 0);
-
-  const assetClassItems: import('../types').RebalanceItem[] = assetBuckets.map((b, idx) => {
+  const assetClassItems: import('../types').RebalanceItem[] = assetBuckets.map((b) => {
     const targetVal = totalVal * (b.targetPct / 100);
     const driftPct = b.currentPct - b.targetPct;
     const deltaAmount = targetVal - b.currentVal; // > 0 means BUY, < 0 means SELL
@@ -2136,18 +2271,16 @@ export function computeRebalanceReport(
       status = 'UNDERWEIGHT';
     }
 
-    // Inflow distribution share
+    // Since SIP is dedicated 100% to Equity funds for Market Cap targeting:
     let sipAllocAmount = 0;
     let sipAllocPct = 0;
     if (inflowAmount > 0) {
-      if (totalAssetDeficit > 0) {
-        const gap = assetUnderAllocGaps[idx];
-        sipAllocPct = (gap / totalAssetDeficit) * 100;
-        sipAllocAmount = inflowAmount * (sipAllocPct / 100);
+      if (b.name === 'Equity') {
+        sipAllocPct = 100;
+        sipAllocAmount = inflowAmount;
       } else {
-        // If already aligned, distribute purely according to target strategy
-        sipAllocPct = b.targetPct;
-        sipAllocAmount = inflowAmount * (b.targetPct / 100);
+        sipAllocPct = 0;
+        sipAllocAmount = 0;
       }
     }
 
@@ -2190,14 +2323,17 @@ export function computeRebalanceReport(
     }
   ];
 
-  const mcapUnderAllocGaps = mcapBuckets.map(b => {
-    const targetVal = equityVal * (b.targetPct / 100);
-    return Math.max(0, targetVal - b.currentVal);
-  });
-  const totalMcapDeficit = mcapUnderAllocGaps.reduce((a, b) => a + b, 0);
+  // Calculate target equity value at the end of the horizon:
+  // e.g. Current Equity + (Monthly SIP * Horizon Months)
+  const totalHorizonInflow = inflowAmount * effectiveHorizon;
+  const projectedHorizonEquityVal = equityVal + totalHorizonInflow;
 
-  // Calculate portion of inflow that goes to equity
-  const equityInflow = assetClassItems.find(a => a.name === 'Equity')?.sipAllocAmount || (inflowAmount * (strategy.equity / 100));
+  // Ideal target rupee amount for each bucket at the end of horizon
+  const mcapTargetValuesEnd = mcapBuckets.map(b => projectedHorizonEquityVal * (b.targetPct / 100));
+  
+  // Total deficit across the horizon (how much new capital in each market cap bucket is needed over the horizon)
+  const mcapHorizonDeficits = mcapBuckets.map((b, idx) => Math.max(0, mcapTargetValuesEnd[idx] - b.currentVal));
+  const totalHorizonDeficit = mcapHorizonDeficits.reduce((a, b) => a + b, 0);
 
   const marketCapItems: import('../types').RebalanceItem[] = mcapBuckets.map((b, idx) => {
     const targetVal = equityVal * (b.targetPct / 100);
@@ -2217,14 +2353,14 @@ export function computeRebalanceReport(
 
     let sipAllocAmount = 0;
     let sipAllocPct = 0;
-    if (equityInflow > 0) {
-      if (totalMcapDeficit > 0) {
-        const gap = mcapUnderAllocGaps[idx];
-        sipAllocPct = (gap / totalMcapDeficit) * 100;
-        sipAllocAmount = equityInflow * (sipAllocPct / 100);
+    if (inflowAmount > 0) {
+      if (totalHorizonDeficit > 0) {
+        const gap = mcapHorizonDeficits[idx];
+        sipAllocPct = (gap / totalHorizonDeficit) * 100;
+        sipAllocAmount = inflowAmount * (sipAllocPct / 100);
       } else {
         sipAllocPct = b.targetPct;
-        sipAllocAmount = equityInflow * (b.targetPct / 100);
+        sipAllocAmount = inflowAmount * (b.targetPct / 100);
       }
     }
 
@@ -2244,6 +2380,217 @@ export function computeRebalanceReport(
     };
   });
 
+  // 3. Dynamic Scheme-Level SIP Calculation across ALL Existing Equity Holdings
+  // (Uses each fund's internal SEBI asset breakdown percentages & avoids pausing any category)
+  const equityHoldings = holdings.filter(h => isEquityOrientedScheme(h.schemeName, h.category));
+
+  interface FundRoleInfo {
+    holding: PortfolioHolding;
+    role: 'Large Cap Anchor' | 'Mid Cap Growth' | 'Small Cap Alpha' | 'Flexi / Multi Cap Core';
+    split: import('../types').FundMarketCapSplit;
+    weightInEquity: number;
+    effectiveVal: number;
+  }
+
+  const fundInfos: FundRoleInfo[] = equityHoldings.map(h => {
+    const override = splitsMap?.[h.schemeCode] || splitsMap?.[h.schemeName];
+    const split = override || getDefaultFundMarketCapSplit(h.schemeName, h.category);
+    const cat = (h.category || '').toLowerCase();
+    const name = (h.schemeName || '').toLowerCase();
+
+    let role: 'Large Cap Anchor' | 'Mid Cap Growth' | 'Small Cap Alpha' | 'Flexi / Multi Cap Core' = 'Flexi / Multi Cap Core';
+    if (split.smallCap >= 60 || cat.includes('small') || name.includes('small')) {
+      role = 'Small Cap Alpha';
+    } else if (split.midCap >= 50 || cat.includes('mid') || name.includes('mid')) {
+      role = 'Mid Cap Growth';
+    } else if (split.largeCap >= 60 || cat.includes('large cap') || cat.includes('bluechip') || name.includes('nifty 50') || name.includes('top 100')) {
+      role = 'Large Cap Anchor';
+    } else {
+      role = 'Flexi / Multi Cap Core';
+    }
+
+    const isHybrid = cat.includes('hybrid') || cat.includes('balanced') || cat.includes('multi asset');
+    const effectiveVal = h.currentValue * (isHybrid ? 0.65 : 1.0);
+    const weightInEquity = equityVal > 0 ? (effectiveVal / equityVal) * 100 : 0;
+
+    return {
+      holding: h,
+      role,
+      split,
+      weightInEquity,
+      effectiveVal
+    };
+  });
+
+  // Target monthly rupees needed for each market cap tier
+  const largeMonthlyTarget = marketCapItems.find(m => m.name === 'Large Cap')?.sipAllocAmount || (inflowAmount * (strategy.largeCap / 100));
+  const midMonthlyTarget = marketCapItems.find(m => m.name === 'Mid Cap')?.sipAllocAmount || (inflowAmount * (strategy.midCap / 100));
+  const smallMonthlyTarget = marketCapItems.find(m => m.name === 'Small Cap')?.sipAllocAmount || (inflowAmount * (strategy.smallCap / 100));
+
+  // Compute total internal market-cap weighted capacity across all existing funds
+  // Each fund i provides: (split.largeCap/100)*effectiveVal to Large, (split.midCap/100)*effectiveVal to Mid, etc.
+  const totalLargeCapExposure = fundInfos.reduce((s, f) => s + (f.split.largeCap / 100) * f.effectiveVal, 0) || 1;
+  const totalMidCapExposure = fundInfos.reduce((s, f) => s + (f.split.midCap / 100) * f.effectiveVal, 0) || 1;
+  const totalSmallCapExposure = fundInfos.reduce((s, f) => s + (f.split.smallCap / 100) * f.effectiveVal, 0) || 1;
+
+  // Calculate baseline contribution share for every holding so NO category/fund is paused (guaranteed baseline continuity)
+  // Baseline floor = 10% proportional to fund's current size in equity
+  const baselineSharePct = 0.10; // 10% baseline floor distributed by holding size
+  const tacticalSharePct = 1.0 - baselineSharePct; // 90% dynamically steered by SEBI internal asset drift
+
+  const rawSchemeSips = fundInfos.map(f => {
+    // 1. Baseline continuity component (keeps all existing funds active)
+    const baselineAmt = (f.weightInEquity / 100) * (inflowAmount * baselineSharePct);
+
+    // 2. Dynamic tactical rebalancing component based on internal SEBI asset breakdown
+    const largeContrib = (f.split.largeCap / 100) * f.effectiveVal / totalLargeCapExposure;
+    const midContrib = (f.split.midCap / 100) * f.effectiveVal / totalMidCapExposure;
+    const smallContrib = (f.split.smallCap / 100) * f.effectiveVal / totalSmallCapExposure;
+
+    const dynamicLargeSip = largeMonthlyTarget * largeContrib * tacticalSharePct;
+    const dynamicMidSip = midMonthlyTarget * midContrib * tacticalSharePct;
+    const dynamicSmallSip = smallMonthlyTarget * smallContrib * tacticalSharePct;
+
+    const totalRawSip = baselineAmt + dynamicLargeSip + dynamicMidSip + dynamicSmallSip;
+
+    // Build explanatory rationale
+    let rationale = '';
+    if (f.role === 'Flexi / Multi Cap Core') {
+      rationale = `Continuous diversified core deploying ${f.split.largeCap}% L / ${f.split.midCap}% M / ${f.split.smallCap}% S to smoothly converge portfolio to ${strategy.largeCap}:${strategy.midCap}:${strategy.smallCap} over ${effectiveHorizon}m.`;
+    } else if (f.role === 'Mid Cap Growth') {
+      rationale = `Active growth engine channeling ~${f.split.midCap}% internal mid-cap assets toward the ${strategy.midCap}% target weight without abrupt pauses.`;
+    } else if (f.role === 'Small Cap Alpha') {
+      rationale = `Disciplined high-alpha SIP deploying ${f.split.smallCap}% small-cap assets to reach the ${strategy.smallCap}% target steadily across ${effectiveHorizon} months.`;
+    } else {
+      rationale = `Large Cap anchor providing stability with ${f.split.largeCap}% top-tier exposure.`;
+    }
+
+    return {
+      info: f,
+      rawAmount: totalRawSip,
+      rationale
+    };
+  });
+
+  // Clean rounding of SIP recommendations to ₹500 increments while ensuring exact sum = inflowAmount
+  let roundedSips = rawSchemeSips.map(item => {
+    // Ensure every existing fund receives at least ₹500/mo (no category paused) if inflow is sufficient
+    const raw = item.rawAmount;
+    const rounded = Math.max(500, Math.round(raw / 500) * 500);
+    return {
+      ...item,
+      roundedAmount: rounded
+    };
+  });
+
+  // Adjust difference to preserve exact inflowAmount
+  const currentRoundedSum = roundedSips.reduce((s, r) => s + r.roundedAmount, 0);
+  const diff = inflowAmount - currentRoundedSum;
+  if (diff !== 0 && roundedSips.length > 0) {
+    // Adjust on the largest allocation fund
+    let maxIdx = 0;
+    for (let i = 1; i < roundedSips.length; i++) {
+      if (roundedSips[i].roundedAmount > roundedSips[maxIdx].roundedAmount) {
+        maxIdx = i;
+      }
+    }
+    roundedSips[maxIdx].roundedAmount = Math.max(500, roundedSips[maxIdx].roundedAmount + diff);
+  }
+
+  const schemeSipRecommendations: import('../types').SchemeSipRecommendation[] = roundedSips
+    .map(r => ({
+      schemeCode: r.info.holding.schemeCode,
+      schemeName: r.info.holding.schemeName,
+      category: r.info.holding.category,
+      currentValue: r.info.holding.currentValue,
+      primaryRole: r.info.role,
+      recommendedSip: r.roundedAmount,
+      sipSharePct: inflowAmount > 0 ? (r.roundedAmount / inflowAmount) * 100 : 0,
+      rationale: r.rationale,
+      largeCapPct: r.info.split.largeCap,
+      midCapPct: r.info.split.midCap,
+      smallCapPct: r.info.split.smallCap,
+      projected12mAddition: r.roundedAmount * effectiveHorizon
+    }))
+    .sort((a, b) => b.recommendedSip - a.recommendedSip);
+
+  // 4. Compute Projected 12-Month / Horizon Market Cap Convergence
+  let projectedLargeVal = marketCapAlloc.largeCapValue;
+  let projectedMidVal = marketCapAlloc.midCapValue;
+  let projectedSmallVal = marketCapAlloc.smallCapValue;
+
+  schemeSipRecommendations.forEach(scheme => {
+    const total12mSip = scheme.projected12mAddition;
+    projectedLargeVal += total12mSip * (scheme.largeCapPct / 100);
+    projectedMidVal += total12mSip * (scheme.midCapPct / 100);
+    projectedSmallVal += total12mSip * (scheme.smallCapPct / 100);
+  });
+
+  const projectedTotalEquity = projectedLargeVal + projectedMidVal + projectedSmallVal || 1;
+  const projectedMarketCap = {
+    largeCap: (projectedLargeVal / projectedTotalEquity) * 100,
+    midCap: (projectedMidVal / projectedTotalEquity) * 100,
+    smallCap: (projectedSmallVal / projectedTotalEquity) * 100,
+    largeCapVal: projectedLargeVal,
+    midCapVal: projectedMidVal,
+    smallCapVal: projectedSmallVal
+  };
+
+  // 5. Manual Rebalance Guidance for Debt & Gold
+  const manualRebalanceNotes: import('../types').RebalanceReport['manualRebalanceNotes'] = [];
+  
+  const debtItem = assetClassItems.find(a => a.name === 'Debt & Fixed Income');
+  if (debtItem) {
+    if (debtItem.driftPct < -2.0) {
+      manualRebalanceNotes.push({
+        assetName: 'Debt & Arbitrage Funds',
+        action: 'ADD',
+        amount: Math.round(debtItem.deltaAmount),
+        explanation: `Debt allocation is under target by ${Math.abs(debtItem.driftPct).toFixed(1)}% (Current: ${debtItem.currentPct.toFixed(1)}%, Target: ${debtItem.targetPct}%). Plan a manual lump-sum addition of ~₹${Math.round(debtItem.deltaAmount).toLocaleString('en-IN')} into Arbitrage or Short-Term Debt.`
+      });
+    } else if (debtItem.driftPct > 2.0) {
+      manualRebalanceNotes.push({
+        assetName: 'Debt & Arbitrage Funds',
+        action: 'TRIM',
+        amount: Math.round(Math.abs(debtItem.deltaAmount)),
+        explanation: `Debt allocation is above target by +${debtItem.driftPct.toFixed(1)}% (Current: ${debtItem.currentPct.toFixed(1)}%, Target: ${debtItem.targetPct}%). Consider manual profit switch during annual review.`
+      });
+    } else {
+      manualRebalanceNotes.push({
+        assetName: 'Debt & Arbitrage Funds',
+        action: 'ALIGNED',
+        amount: 0,
+        explanation: `Debt allocation is well aligned with target (${debtItem.currentPct.toFixed(1)}% vs target ${debtItem.targetPct}%). No action required.`
+      });
+    }
+  }
+
+  const goldItem = assetClassItems.find(a => a.name === 'Gold & Commodities');
+  if (goldItem) {
+    if (goldItem.driftPct < -2.0) {
+      manualRebalanceNotes.push({
+        assetName: 'Gold & Commodities',
+        action: 'ADD',
+        amount: Math.round(goldItem.deltaAmount),
+        explanation: `Gold is under target by ${Math.abs(goldItem.driftPct).toFixed(1)}% (Current: ${goldItem.currentPct.toFixed(1)}%, Target: ${goldItem.targetPct}%). Add ~₹${Math.round(goldItem.deltaAmount).toLocaleString('en-IN')} via manual tranche to restore hedge cushion.`
+      });
+    } else if (goldItem.driftPct > 2.0) {
+      manualRebalanceNotes.push({
+        assetName: 'Gold & Commodities',
+        action: 'TRIM',
+        amount: Math.round(Math.abs(goldItem.deltaAmount)),
+        explanation: `Gold is above target by +${goldItem.driftPct.toFixed(1)}% (Current: ${goldItem.currentPct.toFixed(1)}%, Target: ${goldItem.targetPct}%). Maintain existing units or rebalance manually during market highs.`
+      });
+    } else {
+      manualRebalanceNotes.push({
+        assetName: 'Gold & Commodities',
+        action: 'ALIGNED',
+        amount: 0,
+        explanation: `Gold allocation is well aligned (${goldItem.currentPct.toFixed(1)}% vs target ${goldItem.targetPct}%).`
+      });
+    }
+  }
+
   const totalRebalanceRequired = assetClassItems
     .filter(i => i.deltaAmount > 0)
     .reduce((sum, i) => sum + i.deltaAmount, 0);
@@ -2253,11 +2600,16 @@ export function computeRebalanceReport(
   return {
     assetClassItems,
     marketCapItems,
+    schemeSipRecommendations,
     totalPortfolioValue: totalVal,
     inflowAmount,
     rebalanceMode,
     totalRebalanceRequired,
-    isAligned
+    isAligned,
+    horizonMonths: effectiveHorizon,
+    projectedEquityValue: projectedTotalEquity,
+    projectedMarketCap,
+    manualRebalanceNotes
   };
 }
 

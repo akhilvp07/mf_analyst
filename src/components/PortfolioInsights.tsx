@@ -22,7 +22,16 @@ import {
   Coins,
   Shield,
   Zap,
-  Bot
+  Bot,
+  RotateCcw,
+  SlidersHorizontal,
+  Edit3,
+  Check,
+  Target,
+  Wallet,
+  Copy,
+  Clock,
+  Calendar
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { 
@@ -30,7 +39,8 @@ import {
   PortfolioSummary, 
   TransactionRecord, 
   AllocationStrategy, 
-  RebalanceReport 
+  RebalanceReport,
+  FundMarketCapSplit
 } from '../types';
 import { 
   computeAssetAllocation, 
@@ -38,8 +48,14 @@ import {
   computeRebalanceReport, 
   computeTaxLiability,
   DEFAULT_ALLOCATION_STRATEGIES, 
-  formatINR 
+  formatINR,
+  isEquityOrientedScheme,
+  getDefaultFundMarketCapSplit
 } from '../utils/financialCalculations';
+import {
+  loadFundMarketCapSplits,
+  saveFundMarketCapSplits
+} from '../services/portfolioStorage';
 
 interface PortfolioInsightsProps {
   holdings: PortfolioHolding[];
@@ -48,6 +64,9 @@ interface PortfolioInsightsProps {
 }
 
 const STORAGE_KEY_STRATEGY = 'mftracker_allocation_strategy_v1';
+const STORAGE_KEY_SELECTED_STRATEGY = 'mftracker_selected_strategy_id_v1';
+const STORAGE_KEY_MONTHLY_INFLOW = 'mftracker_monthly_inflow_v1';
+const STORAGE_KEY_HORIZON_MONTHS = 'mftracker_rebalance_horizon_v1';
 const STORAGE_KEY_AI_CACHE = 'mftracker_gemini_insights_cache_v1';
 
 export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({ 
@@ -56,7 +75,13 @@ export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({
   transactions = [] 
 }) => {
   // Strategy state with local persistence
-  const [selectedStrategyId, setSelectedStrategyId] = useState<string>('aggressive_wealth');
+  const [selectedStrategyId, setSelectedStrategyId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_SELECTED_STRATEGY);
+      if (saved) return saved;
+    } catch {}
+    return 'strategic_core_70_20_10';
+  });
   const [customStrategy, setCustomStrategy] = useState<AllocationStrategy>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_STRATEGY);
@@ -76,9 +101,60 @@ export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({
     };
   });
 
+  // Strategy selection handler
+  const handleSelectStrategy = (stratId: string) => {
+    setSelectedStrategyId(stratId);
+    try {
+      localStorage.setItem(STORAGE_KEY_SELECTED_STRATEGY, stratId);
+    } catch {}
+  };
+
   const [isCustomizing, setIsCustomizing] = useState<boolean>(false);
   const [rebalanceMode, setRebalanceMode] = useState<'SIP_INFLOW' | 'DIRECT_REALIGNMENT'>('SIP_INFLOW');
-  const [monthlyInflow, setMonthlyInflow] = useState<number>(25000);
+  const [monthlyInflow, setMonthlyInflow] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_MONTHLY_INFLOW);
+      if (saved) {
+        const parsed = Number(saved);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    } catch {}
+    return 45000;
+  });
+
+  const [horizonMonths, setHorizonMonths] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_HORIZON_MONTHS);
+      if (saved) {
+        const parsed = Number(saved);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    } catch {}
+    return 12;
+  });
+
+  const handleMonthlyInflowChange = (val: number) => {
+    const safeVal = Math.max(1000, val);
+    setMonthlyInflow(safeVal);
+    try {
+      localStorage.setItem(STORAGE_KEY_MONTHLY_INFLOW, String(safeVal));
+    } catch {}
+  };
+
+  const handleHorizonMonthsChange = (months: number) => {
+    const safeVal = Math.max(1, months);
+    setHorizonMonths(safeVal);
+    try {
+      localStorage.setItem(STORAGE_KEY_HORIZON_MONTHS, String(safeVal));
+    } catch {}
+  };
+
+  const [copiedSipPlan, setCopiedSipPlan] = useState<boolean>(false);
+
+  // User-defined fund market cap splits (persisted to localStorage)
+  const [fundMarketCapSplits, setFundMarketCapSplits] = useState<Record<string, FundMarketCapSplit>>(() => {
+    return loadFundMarketCapSplits();
+  });
 
   // Gemini AI Insights state
   const [aiReport, setAiReport] = useState<{ score: number; markdown: string; timestamp: string } | null>(() => {
@@ -105,72 +181,36 @@ export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({
     return found || DEFAULT_ALLOCATION_STRATEGIES[0];
   }, [selectedStrategyId, customStrategy]);
 
-  // Compute live asset allocation and market cap breakdowns
+  // Compute live asset allocation and market cap breakdowns using user-defined splitsMap
   const assetAlloc = useMemo(() => computeAssetAllocation(holdings), [holdings]);
-  const marketCapAlloc = useMemo(() => computeMarketCapAllocation(holdings), [holdings]);
+  const marketCapAlloc = useMemo(() => computeMarketCapAllocation(holdings, fundMarketCapSplits), [holdings, fundMarketCapSplits]);
   const taxSummary = useMemo(() => computeTaxLiability(transactions, holdings), [transactions, holdings]);
 
-  // Equity Scheme Market Cap Decomposition
+  // Equity Scheme Market Cap Decomposition (Filtered strictly for equity-oriented funds)
   const equityHoldingsBreakdown = useMemo(() => {
     return holdings
+      .filter(h => isEquityOrientedScheme(h.schemeName, h.category))
       .map(h => {
-        const cat = (h.category || '').toLowerCase();
-        const name = (h.schemeName || '').toLowerCase();
-
-        if (
-          cat.includes('liquid') || 
-          cat.includes('overnight') || 
-          cat.includes('money market') ||
-          cat.includes('debt') || 
-          cat.includes('gilt') || 
-          cat.includes('duration') || 
-          cat.includes('bond') || 
-          cat.includes('gold') || 
-          cat.includes('silver') || 
-          cat.includes('commodity') ||
-          name.includes('gold be') ||
-          name.includes('liquid fund')
-        ) {
-          return null;
-        }
-
-        const isHybrid = cat.includes('hybrid') || cat.includes('balanced') || cat.includes('multi asset');
+        const isHybrid = (h.category || '').toLowerCase().includes('hybrid') || 
+                         (h.category || '').toLowerCase().includes('balanced') || 
+                         (h.category || '').toLowerCase().includes('multi asset');
         const equityMultiplier = isHybrid ? 0.65 : 1.0;
         const effectiveVal = h.currentValue * equityMultiplier;
 
-        let largePct = 0.60;
-        let midPct = 0.25;
-        let smallPct = 0.15;
+        const key = h.schemeCode || h.schemeName;
+        const customSplit = fundMarketCapSplits[key] || fundMarketCapSplits[h.schemeCode] || fundMarketCapSplits[h.schemeName];
+        const defaultSplit = getDefaultFundMarketCapSplit(h.schemeName, h.category);
+        const activeSplit = customSplit || defaultSplit;
+        const isCustomized = Boolean(customSplit);
 
-        if (cat.includes('small cap') || cat.includes('smallcap') || name.includes('small cap') || name.includes('smallcap')) {
-          smallPct = 0.85;
-          midPct = 0.15;
-          largePct = 0.00;
-        } else if (cat.includes('mid cap') || cat.includes('midcap') || name.includes('mid cap') || name.includes('midcap') || name.includes('emerging')) {
-          midPct = 0.80;
-          largePct = 0.15;
-          smallPct = 0.05;
-        } else if (cat.includes('large & mid') || cat.includes('large and mid') || name.includes('large & mid')) {
-          largePct = 0.50;
-          midPct = 0.45;
-          smallPct = 0.05;
-        } else if (cat.includes('large cap') || name.includes('large cap') || name.includes('bluechip') || name.includes('top 100') || name.includes('nifty 50') || name.includes('sensex')) {
-          largePct = 0.90;
-          midPct = 0.10;
-          smallPct = 0.00;
-        } else if (cat.includes('flexi cap') || cat.includes('flexicap') || name.includes('flexi cap') || name.includes('flexicap')) {
-          largePct = 0.65;
-          midPct = 0.25;
-          smallPct = 0.10;
-        } else if (cat.includes('multi cap') || cat.includes('multicap') || name.includes('multi cap')) {
-          largePct = 0.40;
-          midPct = 0.35;
-          smallPct = 0.25;
-        } else if (cat.includes('elss') || cat.includes('tax saver')) {
-          largePct = 0.70;
-          midPct = 0.20;
-          smallPct = 0.10;
-        }
+        const largePct = activeSplit.largeCap;
+        const midPct = activeSplit.midCap;
+        const smallPct = activeSplit.smallCap;
+        const sumPct = largePct + midPct + smallPct;
+
+        const largeCapVal = effectiveVal * (largePct / 100);
+        const midCapVal = effectiveVal * (midPct / 100);
+        const smallCapVal = effectiveVal * (smallPct / 100);
 
         return {
           schemeCode: h.schemeCode,
@@ -179,18 +219,77 @@ export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({
           currentValue: h.currentValue,
           effectiveEquityValue: effectiveVal,
           isHybrid,
-          largeCapVal: effectiveVal * largePct,
-          midCapVal: effectiveVal * midPct,
-          smallCapVal: effectiveVal * smallPct,
-          largeCapPct: largePct * 100,
-          midCapPct: midPct * 100,
-          smallCapPct: smallPct * 100,
+          key,
+          defaultSplit,
+          activeSplit,
+          isCustomized,
+          sumPct,
+          largeCapVal,
+          midCapVal,
+          smallCapVal,
+          largeCapPct: largePct,
+          midCapPct: midPct,
+          smallCapPct: smallPct,
           weightInEquity: marketCapAlloc.totalEquityValue > 0 ? (effectiveVal / marketCapAlloc.totalEquityValue) * 100 : 0
         };
       })
-      .filter((item): item is NonNullable<typeof item> => item !== null)
       .sort((a, b) => b.effectiveEquityValue - a.effectiveEquityValue);
-  }, [holdings, marketCapAlloc.totalEquityValue]);
+  }, [holdings, marketCapAlloc.totalEquityValue, fundMarketCapSplits]);
+
+  // Fund split update handlers
+  const handleUpdateFundSplit = (key: string, updates: Partial<FundMarketCapSplit>, defaultSplit: FundMarketCapSplit) => {
+    setFundMarketCapSplits(prev => {
+      const existing = prev[key] || { ...defaultSplit };
+      const merged: FundMarketCapSplit = {
+        largeCap: updates.largeCap !== undefined ? Math.max(0, Math.min(100, updates.largeCap)) : existing.largeCap,
+        midCap: updates.midCap !== undefined ? Math.max(0, Math.min(100, updates.midCap)) : existing.midCap,
+        smallCap: updates.smallCap !== undefined ? Math.max(0, Math.min(100, updates.smallCap)) : existing.smallCap,
+      };
+      const nextMap = { ...prev, [key]: merged };
+      saveFundMarketCapSplits(nextMap);
+      return nextMap;
+    });
+  };
+
+  const handleResetFundSplit = (key: string) => {
+    setFundMarketCapSplits(prev => {
+      const nextMap = { ...prev };
+      delete nextMap[key];
+      saveFundMarketCapSplits(nextMap);
+      return nextMap;
+    });
+  };
+
+  const handleResetAllFundSplits = () => {
+    setFundMarketCapSplits({});
+    saveFundMarketCapSplits({});
+  };
+
+  const handleNormalizeFundSplit = (key: string, defaultSplit: FundMarketCapSplit) => {
+    setFundMarketCapSplits(prev => {
+      const existing = prev[key] || { ...defaultSplit };
+      const sum = (existing.largeCap || 0) + (existing.midCap || 0) + (existing.smallCap || 0);
+      if (sum <= 0) {
+        const nextMap = { ...prev, [key]: { largeCap: 100, midCap: 0, smallCap: 0 } };
+        saveFundMarketCapSplits(nextMap);
+        return nextMap;
+      }
+      const factor = 100 / sum;
+      const l = Math.round(existing.largeCap * factor);
+      const m = Math.round(existing.midCap * factor);
+      const s = 100 - l - m;
+      const nextMap = {
+        ...prev,
+        [key]: {
+          largeCap: Math.max(0, l),
+          midCap: Math.max(0, m),
+          smallCap: Math.max(0, s),
+        }
+      };
+      saveFundMarketCapSplits(nextMap);
+      return nextMap;
+    });
+  };
 
   // Style tilt determination
   const styleTilt = useMemo(() => {
@@ -225,8 +324,8 @@ export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({
 
   // Compute rebalancing suggestions
   const rebalanceReport: RebalanceReport = useMemo(() => {
-    return computeRebalanceReport(holdings, activeStrategy, monthlyInflow, rebalanceMode);
-  }, [holdings, activeStrategy, monthlyInflow, rebalanceMode]);
+    return computeRebalanceReport(holdings, activeStrategy, monthlyInflow, rebalanceMode, fundMarketCapSplits, horizonMonths);
+  }, [holdings, activeStrategy, monthlyInflow, rebalanceMode, fundMarketCapSplits, horizonMonths]);
 
   // Save custom strategy
   const handleSaveCustomStrategy = (newStrat: AllocationStrategy) => {
@@ -394,13 +493,13 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
         </div>
 
         {/* Preset Strategy Buttons */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 mt-4">
           {DEFAULT_ALLOCATION_STRATEGIES.map(strat => {
             const isSelected = selectedStrategyId === strat.id;
             return (
               <button
                 key={strat.id}
-                onClick={() => setSelectedStrategyId(strat.id)}
+                onClick={() => handleSelectStrategy(strat.id)}
                 className={`p-3.5 rounded-xl text-left border transition relative overflow-hidden flex flex-col justify-between ${
                   isSelected 
                     ? 'bg-emerald-500/10 border-emerald-500/50 shadow-sm' 
@@ -777,30 +876,100 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
 
         {/* Mode Explanatory Notice & Inflow Input */}
         {rebalanceMode === 'SIP_INFLOW' ? (
-          <div className="mt-4 p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-start gap-2.5">
-              <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-              <div>
-                <span className="text-xs font-bold text-emerald-300 block">Zero-Tax Smart SIP Rebalancer</span>
-                <p className="text-[11px] text-neutral-400 mt-0.5">
-                  Instead of selling units and triggering 12.5% LTCG / 20% STCG or exit loads, direct your monthly SIPs toward under-allocated buckets to gradually reach target weights.
-                </p>
+          <div className="mt-4 p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20 flex flex-col gap-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex items-start gap-2.5">
+                <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-emerald-300">Equity Market-Cap Targeted SIP Rebalancer</span>
+                    <span className="text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full">
+                      100% Equity Routing
+                    </span>
+                    <span className="text-[10px] font-semibold bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {horizonMonths}-Month Gradual Alignment
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-neutral-400 mt-1 max-w-2xl">
+                    Dynamically weights your monthly SIP across all your existing flexi, mid, and small cap holdings using their internal SEBI market-cap asset allocations. Attains your target market-cap ratio smoothly over {horizonMonths} months without abruptly pausing any category.
+                  </p>
+                </div>
+              </div>
+
+              {/* Monthly SIP Input & Quick Presets */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
+                <div className="flex items-center gap-1.5">
+                  {[25000, 45000, 50000, 75000, 100000].map((preset) => (
+                    <button
+                      key={preset}
+                      onClick={() => handleMonthlyInflowChange(preset)}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-mono font-semibold transition ${
+                        monthlyInflow === preset
+                          ? 'bg-emerald-500 text-neutral-950 shadow-sm'
+                          : 'bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700'
+                      }`}
+                    >
+                      {preset === 45000 ? '₹45k (Default)' : `₹${preset / 1000}k`}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-neutral-400 font-mono">₹</span>
+                    <input
+                      type="number"
+                      step="5000"
+                      value={monthlyInflow}
+                      onChange={(e) => handleMonthlyInflowChange(Number(e.target.value))}
+                      className="w-28 bg-neutral-900 border border-neutral-700 rounded-lg pl-6 pr-2 py-1.5 text-xs font-mono font-bold text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Monthly SIP Input */}
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="text-xs text-neutral-300 font-medium">Monthly Inflow:</span>
-              <div className="relative">
-                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-neutral-400 font-mono">₹</span>
-                <input
-                  type="number"
-                  step="5000"
-                  value={monthlyInflow}
-                  onChange={(e) => setMonthlyInflow(Math.max(1000, Number(e.target.value)))}
-                  className="w-32 bg-neutral-900 border border-neutral-700 rounded-lg pl-6 pr-2 py-1.5 text-xs font-mono font-bold text-white focus:outline-none focus:border-emerald-500"
-                />
+            {/* Horizon Duration Selector & Target Projection Pill */}
+            <div className="pt-3 border-t border-emerald-500/15 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold text-neutral-400 flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                  Target Realignment Horizon:
+                </span>
+                <div className="flex items-center gap-1 bg-neutral-900/80 p-0.5 rounded-lg border border-neutral-800">
+                  {[6, 12, 18, 24].map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => handleHorizonMonthsChange(m)}
+                      className={`px-2.5 py-1 rounded text-[10px] font-medium transition ${
+                        horizonMonths === m
+                          ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30'
+                          : 'text-neutral-400 hover:text-neutral-200'
+                      }`}
+                    >
+                      {m} Months {m === 12 && '(Target)'}
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              {rebalanceReport.projectedMarketCap && (
+                <div className="flex items-center gap-3 text-[11px] font-mono bg-neutral-900/90 px-3 py-1.5 rounded-lg border border-neutral-800">
+                  <span className="text-neutral-400 font-sans font-medium text-[10px] uppercase">
+                    Projected at Month {horizonMonths}:
+                  </span>
+                  <span className="text-indigo-400 font-semibold">
+                    L: {rebalanceReport.projectedMarketCap.largeCap.toFixed(1)}% <span className="text-neutral-500 font-normal">(Target {activeStrategy.largeCap}%)</span>
+                  </span>
+                  <span className="text-teal-400 font-semibold">
+                    M: {rebalanceReport.projectedMarketCap.midCap.toFixed(1)}% <span className="text-neutral-500 font-normal">(Target {activeStrategy.midCap}%)</span>
+                  </span>
+                  <span className="text-purple-400 font-semibold">
+                    S: {rebalanceReport.projectedMarketCap.smallCap.toFixed(1)}% <span className="text-neutral-500 font-normal">(Target {activeStrategy.smallCap}%)</span>
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -826,7 +995,7 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
                 <th className="py-2.5 px-3">Target %</th>
                 <th className="py-2.5 px-3">Drift</th>
                 <th className="py-2.5 px-3">
-                  {rebalanceMode === 'SIP_INFLOW' ? 'Recommended Monthly SIP Routing' : 'Direct Rebalance Amount'}
+                  {rebalanceMode === 'SIP_INFLOW' ? 'Monthly SIP Distribution' : 'Direct Rebalance Amount'}
                 </th>
                 <th className="py-2.5 px-3 text-right">Target Value</th>
               </tr>
@@ -855,13 +1024,13 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
                   </td>
                   <td className="py-3 px-3 font-mono">
                     {rebalanceMode === 'SIP_INFLOW' ? (
-                      item.sipAllocAmount > 0 ? (
+                      item.name === 'Equity' ? (
                         <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
                           <span>+{formatINR(item.sipAllocAmount)}</span>
-                          <span className="text-[10px] text-neutral-400 font-normal">({item.sipAllocPct.toFixed(0)}% of SIP)</span>
+                          <span className="text-[10px] text-emerald-300/80 font-normal">(100% of Monthly SIP)</span>
                         </div>
                       ) : (
-                        <span className="text-neutral-500 font-normal">Maintain / Pause New SIP</span>
+                        <span className="text-neutral-500 text-[11px] font-normal italic">Manual Rebalance Only</span>
                       )
                     ) : (
                       item.deltaAmount > 0 ? (
@@ -881,8 +1050,16 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
 
               {/* Market Cap Sub-Items Divider */}
               <tr className="bg-neutral-950/40">
-                <td colSpan={7} className="py-2 px-3 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">
-                  Equity Market-Cap Sub-Targets (Within Equity Allocation)
+                <td colSpan={7} className="py-2.5 px-3 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Target className="w-3.5 h-3.5 text-indigo-400" />
+                      Equity Market-Cap Sub-Targets (Dynamic SIP Alignment)
+                    </span>
+                    <span className="text-neutral-500 font-normal">
+                      SIP routes to close under-allocated cap gaps
+                    </span>
+                  </div>
                 </td>
               </tr>
 
@@ -911,10 +1088,10 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
                       item.sipAllocAmount > 0 ? (
                         <div className="flex items-center gap-1.5 text-indigo-400 font-bold">
                           <span>+{formatINR(item.sipAllocAmount)}</span>
-                          <span className="text-[10px] text-neutral-400 font-normal">({item.sipAllocPct.toFixed(0)}% of Equity SIP)</span>
+                          <span className="text-[10px] text-neutral-400 font-normal">({item.sipAllocPct.toFixed(0)}% of SIP)</span>
                         </div>
                       ) : (
-                        <span className="text-neutral-500 font-normal">Maintain</span>
+                        <span className="text-neutral-500 font-normal">Aligned / Low Deficit</span>
                       )
                     ) : (
                       item.deltaAmount > 0 ? (
@@ -934,6 +1111,168 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
             </tbody>
           </table>
         </div>
+
+        {/* 3B. Intelligent Scheme-by-Scheme Monthly SIP Routing Matrix */}
+        {rebalanceMode === 'SIP_INFLOW' && rebalanceReport.schemeSipRecommendations.length > 0 && (
+          <div className="mt-6 pt-5 border-t border-neutral-800">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Wallet className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                    Recommended Scheme-Level SIP Allocation (₹{monthlyInflow.toLocaleString('en-IN')}/Month)
+                  </h3>
+                </div>
+                <p className="text-[11px] text-neutral-400 mt-0.5">
+                  Actionable fund-by-fund split that channels your monthly inflow directly into matching equity holdings to achieve target market cap weights.
+                </p>
+              </div>
+
+              {/* Copy Plan Button */}
+              <button
+                onClick={() => {
+                  const text = [
+                    `📊 Monthly Equity SIP Allocation Plan (Target: ₹${monthlyInflow.toLocaleString('en-IN')})`,
+                    ...rebalanceReport.schemeSipRecommendations.map(
+                      r => `• ${r.schemeName} [${r.primaryRole}]: ₹${r.recommendedSip.toLocaleString('en-IN')}/mo (${r.sipSharePct.toFixed(1)}%) - ${r.rationale}`
+                    )
+                  ].join('\n');
+                  navigator.clipboard.writeText(text);
+                  setCopiedSipPlan(true);
+                  setTimeout(() => setCopiedSipPlan(false), 2500);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition shrink-0 border border-neutral-700"
+              >
+                {copiedSipPlan ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-emerald-400 font-bold">Copied to Clipboard!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5 text-neutral-400" />
+                    <span>Copy SIP Plan</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {rebalanceReport.schemeSipRecommendations.map((scheme) => {
+                const roleBadgeClass = 
+                  scheme.primaryRole === 'Large Cap Anchor' 
+                    ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30' 
+                    : scheme.primaryRole === 'Mid Cap Growth' 
+                      ? 'bg-teal-500/10 text-teal-300 border-teal-500/30' 
+                      : scheme.primaryRole === 'Small Cap Alpha' 
+                        ? 'bg-purple-500/10 text-purple-300 border-purple-500/30' 
+                        : 'bg-blue-500/10 text-blue-300 border-blue-500/30';
+
+                return (
+                  <div 
+                    key={scheme.schemeCode || scheme.schemeName}
+                    className="p-4 rounded-xl bg-neutral-950/60 border border-neutral-800 hover:border-neutral-700 transition flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${roleBadgeClass}`}>
+                          {scheme.primaryRole}
+                        </span>
+                        <span className="text-[11px] font-mono font-bold text-emerald-400">
+                          {scheme.sipSharePct.toFixed(1)}% of SIP
+                        </span>
+                      </div>
+
+                      <h4 className="text-xs font-bold text-white leading-tight line-clamp-2" title={scheme.schemeName}>
+                        {scheme.schemeName}
+                      </h4>
+
+                      <div className="mt-2 text-[11px] text-neutral-400 font-mono flex items-center gap-2">
+                        <span>Current: {formatINR(scheme.currentValue, true)}</span>
+                        <span>•</span>
+                        <span>L:{scheme.largeCapPct}% M:{scheme.midCapPct}% S:{scheme.smallCapPct}%</span>
+                      </div>
+
+                      <p className="text-[11px] text-neutral-400 mt-2 italic bg-neutral-900/60 p-2 rounded-lg border border-neutral-800/80">
+                        {scheme.rationale}
+                      </p>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-neutral-800/80 flex items-center justify-between">
+                      <div>
+                        <span className="text-xs text-neutral-400 block">Target Monthly SIP</span>
+                        {scheme.projected12mAddition && (
+                          <span className="text-[10px] text-neutral-500 font-mono">
+                            +₹{Math.round(scheme.projected12mAddition).toLocaleString('en-IN')} across {horizonMonths}m
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-sm font-bold font-mono text-white bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                        ₹{scheme.recommendedSip.toLocaleString('en-IN')}/mo
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 3C. Dedicated Manual Rebalancing Recommendations (Debt & Gold) */}
+        {rebalanceReport.manualRebalanceNotes && rebalanceReport.manualRebalanceNotes.length > 0 && (
+          <div className="mt-6 pt-5 border-t border-neutral-800">
+            <div className="flex items-center gap-2 mb-3">
+              <Scale className="w-4 h-4 text-blue-400" />
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                Manual Rebalancing Recommendations (Debt & Gold)
+              </h3>
+              <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full font-semibold">
+                Lump-Sum / Periodic Switch
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {rebalanceReport.manualRebalanceNotes.map((note) => (
+                <div 
+                  key={note.assetName}
+                  className={`p-3.5 rounded-xl border flex flex-col justify-between ${
+                    note.action === 'ADD'
+                      ? 'bg-blue-500/5 border-blue-500/20'
+                      : note.action === 'TRIM'
+                        ? 'bg-amber-500/5 border-amber-500/20'
+                        : 'bg-emerald-500/5 border-emerald-500/20'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <span className="text-xs font-bold text-white">{note.assetName}</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      note.action === 'ADD'
+                        ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                        : note.action === 'TRIM'
+                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                          : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                    }`}>
+                      {note.action === 'ADD' ? 'Top-Up Needed' : note.action === 'TRIM' ? 'Overweight (Hold/Trim)' : 'Target Met'}
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-neutral-300 leading-relaxed">
+                    {note.explanation}
+                  </p>
+
+                  {note.amount > 0 && (
+                    <div className="mt-3 pt-2 border-t border-neutral-800/60 flex items-center justify-between text-xs font-mono">
+                      <span className="text-neutral-400 font-sans">Recommended Lump-Sum Action:</span>
+                      <span className={`font-bold ${note.action === 'ADD' ? 'text-blue-400' : 'text-amber-400'}`}>
+                        {note.action === 'ADD' ? `+₹${note.amount.toLocaleString('en-IN')}` : `Trim ₹${note.amount.toLocaleString('en-IN')}`}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 4. Gemini AI Portfolio Diagnostic & Strategy Advisor */}
@@ -1282,64 +1621,189 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
 
         {/* Scheme-by-Scheme Market Cap Decomposition Table */}
         <div className="space-y-3 pt-2">
-          <div className="flex items-center justify-between">
-            <h4 className="text-xs font-bold text-neutral-200 flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-emerald-400" />
-              Scheme-Level Market Cap Contribution Table
-            </h4>
-            <span className="text-[11px] text-neutral-400">
-              {equityHoldingsBreakdown.length} Equity {equityHoldingsBreakdown.length === 1 ? 'Scheme' : 'Schemes'}
-            </span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h4 className="text-xs font-bold text-neutral-200 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-emerald-400" />
+                Scheme-Level Market Cap Contribution Table
+              </h4>
+              <p className="text-[11px] text-neutral-400 mt-0.5">
+                Exclusively considers equity-oriented funds. Edit Large, Mid, and Small Cap % below based on monthly fund disclosures; your values persist as defaults.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {Object.keys(fundMarketCapSplits).length > 0 && (
+                <button
+                  onClick={handleResetAllFundSplits}
+                  className="px-2.5 py-1 text-[11px] font-medium text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700 rounded-lg flex items-center gap-1.5 transition"
+                  title="Reset all funds to standard SEBI category benchmark splits"
+                >
+                  <RotateCcw className="w-3 h-3 text-amber-400" />
+                  Reset All to Defaults
+                </button>
+              )}
+              <span className="text-[11px] font-mono px-2 py-1 rounded bg-neutral-800 text-neutral-300 border border-neutral-700">
+                {equityHoldingsBreakdown.length} Equity {equityHoldingsBreakdown.length === 1 ? 'Scheme' : 'Schemes'}
+              </span>
+            </div>
           </div>
 
           <div className="overflow-x-auto border border-neutral-800 rounded-xl bg-neutral-950/40">
             <table className="w-full text-left text-xs">
               <thead className="bg-neutral-800/40 text-neutral-400 border-b border-neutral-800">
                 <tr>
-                  <th className="py-2.5 px-3 font-semibold">Scheme Name & Category</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">Equity Value</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">Portfolio Share</th>
-                  <th className="py-2.5 px-3 font-semibold text-center text-indigo-400">Large Cap</th>
-                  <th className="py-2.5 px-3 font-semibold text-center text-teal-400">Mid Cap</th>
-                  <th className="py-2.5 px-3 font-semibold text-center text-purple-400">Small Cap</th>
+                  <th className="py-2.5 px-3 font-semibold min-w-[220px]">Scheme Name & Category</th>
+                  <th className="py-2.5 px-3 font-semibold text-right min-w-[110px]">Equity Value</th>
+                  <th className="py-2.5 px-3 font-semibold text-right min-w-[90px]">Weight</th>
+                  <th className="py-2.5 px-3 font-semibold text-center text-indigo-400 min-w-[120px]">Large Cap (%)</th>
+                  <th className="py-2.5 px-3 font-semibold text-center text-teal-400 min-w-[120px]">Mid Cap (%)</th>
+                  <th className="py-2.5 px-3 font-semibold text-center text-purple-400 min-w-[120px]">Small Cap (%)</th>
+                  <th className="py-2.5 px-3 font-semibold text-center min-w-[130px]">Total & Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-800/60">
-                {equityHoldingsBreakdown.map((item) => (
-                  <tr key={`${item.schemeCode}_${item.schemeName}`} className="hover:bg-neutral-800/30 transition">
-                    <td className="py-3 px-3">
-                      <div className="font-semibold text-white max-w-xs sm:max-w-md truncate" title={item.schemeName}>
-                        {item.schemeName}
-                      </div>
-                      <div className="text-[11px] text-neutral-400 flex items-center gap-2 mt-0.5">
-                        <span>{item.category}</span>
-                        {item.isHybrid && (
-                          <span className="text-[10px] bg-cyan-500/10 text-cyan-400 px-1.5 py-0.2 rounded border border-cyan-500/20">
-                            65% Equity Portion
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 font-mono text-right font-semibold text-neutral-200">
-                      {formatINR(item.effectiveEquityValue, true)}
-                    </td>
-                    <td className="py-3 px-3 font-mono text-right text-neutral-300">
-                      {item.weightInEquity.toFixed(1)}%
-                    </td>
-                    <td className="py-3 px-3 text-center font-mono">
-                      <span className="text-indigo-400 font-semibold">{item.largeCapPct.toFixed(0)}%</span>
-                      <span className="text-[10px] text-neutral-500 block">({formatINR(item.largeCapVal, true)})</span>
-                    </td>
-                    <td className="py-3 px-3 text-center font-mono">
-                      <span className="text-teal-400 font-semibold">{item.midCapPct.toFixed(0)}%</span>
-                      <span className="text-[10px] text-neutral-500 block">({formatINR(item.midCapVal, true)})</span>
-                    </td>
-                    <td className="py-3 px-3 text-center font-mono">
-                      <span className="text-purple-400 font-semibold">{item.smallCapPct.toFixed(0)}%</span>
-                      <span className="text-[10px] text-neutral-500 block">({formatINR(item.smallCapVal, true)})</span>
+                {equityHoldingsBreakdown.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-neutral-500">
+                      No equity-oriented funds found in portfolio.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  equityHoldingsBreakdown.map((item) => (
+                    <tr key={`${item.schemeCode}_${item.schemeName}`} className="hover:bg-neutral-800/30 transition group">
+                      {/* Scheme Info */}
+                      <td className="py-3 px-3">
+                        <div className="font-semibold text-white max-w-xs sm:max-w-sm truncate" title={item.schemeName}>
+                          {item.schemeName}
+                        </div>
+                        <div className="text-[11px] text-neutral-400 flex flex-wrap items-center gap-1.5 mt-1">
+                          <span className="bg-neutral-800/80 px-1.5 py-0.5 rounded text-[10px] text-neutral-300">
+                            {item.category}
+                          </span>
+                          {item.isHybrid && (
+                            <span className="text-[10px] bg-cyan-500/10 text-cyan-400 px-1.5 py-0.5 rounded border border-cyan-500/20">
+                              65% Equity Portion
+                            </span>
+                          )}
+                          {item.isCustomized ? (
+                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/20 font-medium">
+                              Custom Factsheet
+                            </span>
+                          ) : (
+                            <span className="text-[10px] bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded">
+                              SEBI Default
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Equity Value */}
+                      <td className="py-3 px-3 font-mono text-right font-semibold text-neutral-200">
+                        {formatINR(item.effectiveEquityValue, true)}
+                      </td>
+
+                      {/* Weight */}
+                      <td className="py-3 px-3 font-mono text-right text-neutral-300">
+                        {item.weightInEquity.toFixed(1)}%
+                      </td>
+
+                      {/* Large Cap Input */}
+                      <td className="py-3 px-3 text-center">
+                        <div className="inline-flex flex-col items-center">
+                          <div className="flex items-center justify-center">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="5"
+                              value={item.largeCapPct}
+                              onChange={(e) => handleUpdateFundSplit(item.key, { largeCap: Number(e.target.value) }, item.defaultSplit)}
+                              className="w-16 text-center font-mono font-bold text-xs bg-neutral-900 border border-neutral-700 focus:border-indigo-500 rounded-lg py-1 px-1.5 text-indigo-300 focus:outline-none shadow-inner"
+                            />
+                            <span className="text-neutral-500 text-xs ml-1 font-mono">%</span>
+                          </div>
+                          <span className="text-[10px] text-neutral-400 font-mono mt-1">
+                            {formatINR(item.largeCapVal, true)}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Mid Cap Input */}
+                      <td className="py-3 px-3 text-center">
+                        <div className="inline-flex flex-col items-center">
+                          <div className="flex items-center justify-center">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="5"
+                              value={item.midCapPct}
+                              onChange={(e) => handleUpdateFundSplit(item.key, { midCap: Number(e.target.value) }, item.defaultSplit)}
+                              className="w-16 text-center font-mono font-bold text-xs bg-neutral-900 border border-neutral-700 focus:border-teal-500 rounded-lg py-1 px-1.5 text-teal-300 focus:outline-none shadow-inner"
+                            />
+                            <span className="text-neutral-500 text-xs ml-1 font-mono">%</span>
+                          </div>
+                          <span className="text-[10px] text-neutral-400 font-mono mt-1">
+                            {formatINR(item.midCapVal, true)}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Small Cap Input */}
+                      <td className="py-3 px-3 text-center">
+                        <div className="inline-flex flex-col items-center">
+                          <div className="flex items-center justify-center">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="5"
+                              value={item.smallCapPct}
+                              onChange={(e) => handleUpdateFundSplit(item.key, { smallCap: Number(e.target.value) }, item.defaultSplit)}
+                              className="w-16 text-center font-mono font-bold text-xs bg-neutral-900 border border-neutral-700 focus:border-purple-500 rounded-lg py-1 px-1.5 text-purple-300 focus:outline-none shadow-inner"
+                            />
+                            <span className="text-neutral-500 text-xs ml-1 font-mono">%</span>
+                          </div>
+                          <span className="text-[10px] text-neutral-400 font-mono mt-1">
+                            {formatINR(item.smallCapVal, true)}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Total & Action */}
+                      <td className="py-3 px-3 text-center">
+                        <div className="inline-flex flex-col items-center gap-1">
+                          {item.sumPct === 100 ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              <Check className="w-3 h-3" />
+                              100%
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => handleNormalizeFundSplit(item.key, item.defaultSplit)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition"
+                              title="Click to normalize Large, Mid, and Small Cap to exactly 100%"
+                            >
+                              <AlertTriangle className="w-3 h-3 text-amber-400" />
+                              {item.sumPct}% (Fix)
+                            </button>
+                          )}
+
+                          {item.isCustomized && (
+                            <button
+                              onClick={() => handleResetFundSplit(item.key)}
+                              className="text-[10px] text-neutral-400 hover:text-amber-400 flex items-center gap-1 transition mt-0.5"
+                              title="Reset this fund to default SEBI benchmark split"
+                            >
+                              <RotateCcw className="w-2.5 h-2.5" />
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

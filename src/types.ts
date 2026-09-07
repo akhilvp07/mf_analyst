@@ -2,7 +2,7 @@ export interface MutualFundScheme {
   schemeCode: string;
   schemeName: string;
   fundHouse: string;
-  category: 'Equity - Flexi Cap' | 'Equity - Large Cap' | 'Equity - Mid Cap' | 'Equity - Small Cap' | 'Equity - Large & Mid Cap' | 'Debt - Liquid' | 'Hybrid - Aggressive' | 'Debt - Short Duration' | 'Equity - ELSS' | 'Index Fund';
+  category: 'Equity - Flexi Cap' | 'Equity - Large Cap' | 'Equity - Mid Cap' | 'Equity - Small Cap' | 'Equity - Large & Mid Cap' | 'Debt - Liquid' | 'Hybrid - Aggressive' | 'Debt - Short Duration' | 'Equity - ELSS' | 'Index Fund' | 'Gold & Commodities' | string;
   planType?: 'Direct' | 'Regular';
   optionType?: 'Growth' | 'IDCW';
   currentNav: number;
@@ -179,14 +179,46 @@ export interface RebalanceItem {
   status: 'OVERWEIGHT' | 'UNDERWEIGHT' | 'ALIGNED';
 }
 
+export interface SchemeSipRecommendation {
+  schemeCode: string;
+  schemeName: string;
+  category: string;
+  currentValue: number;
+  primaryRole: 'Large Cap Anchor' | 'Mid Cap Growth' | 'Small Cap Alpha' | 'Flexi / Multi Cap Core';
+  recommendedSip: number;
+  sipSharePct: number;
+  rationale: string;
+  largeCapPct: number;
+  midCapPct: number;
+  smallCapPct: number;
+  projected12mAddition: number;
+}
+
 export interface RebalanceReport {
   assetClassItems: RebalanceItem[];
   marketCapItems: RebalanceItem[];
+  schemeSipRecommendations: SchemeSipRecommendation[];
   totalPortfolioValue: number;
   inflowAmount: number;
   rebalanceMode: 'SIP_INFLOW' | 'DIRECT_REALIGNMENT';
   totalRebalanceRequired: number;
   isAligned: boolean;
+  horizonMonths: number;
+  projectedEquityValue: number;
+  projectedMarketCap: {
+    largeCap: number;
+    midCap: number;
+    smallCap: number;
+    largeCapVal: number;
+    midCapVal: number;
+    smallCapVal: number;
+  };
+  manualRebalanceNotes: {
+    assetName: string;
+    action: 'ADD' | 'TRIM' | 'ALIGNED';
+    amount: number;
+    explanation: string;
+  }[];
 }
 
 export interface AiPortfolioInsight {
@@ -199,5 +231,11 @@ export interface AiPortfolioInsight {
   rebalanceAdvice: string;
   rawMarkdown?: string;
   timestamp: string;
+}
+
+export interface FundMarketCapSplit {
+  largeCap: number; // 0-100%
+  midCap: number;   // 0-100%
+  smallCap: number; // 0-100%
 }
 
