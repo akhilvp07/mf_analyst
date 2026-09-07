@@ -1,19 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Search, 
-  Filter, 
   ArrowUpDown, 
-  Calendar, 
   Receipt, 
   Download, 
-  Sparkles,
-  ArrowUpRight,
-  ArrowDownLeft,
-  RefreshCw,
-  Layers,
-  ChevronDown
+  ArrowUpRight, 
+  ArrowDownLeft, 
+  Layers
 } from 'lucide-react';
-import { TransactionRecord, TransactionType } from '../types';
+import { TransactionRecord } from '../types';
 import { formatINR } from '../utils/financialCalculations';
 import { exportTransactionsToCsv } from '../services/portfolioStorage';
 
@@ -90,33 +85,33 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
   return (
     <div className="space-y-4">
       {/* Ledger Stats Card */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex items-center justify-between">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div>
-            <span className="text-xs text-neutral-400 font-semibold uppercase tracking-wider">Total Inflow (Invested)</span>
-            <div className="text-xl font-bold text-white mt-1">{formatINR(totals.inflow)}</div>
+            <span className="text-[10px] sm:text-xs text-neutral-400 font-semibold uppercase tracking-wider">Total Inflow (Invested)</span>
+            <div className="text-lg sm:text-xl font-bold text-white mt-0.5">{formatINR(totals.inflow)}</div>
           </div>
-          <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
             <ArrowDownLeft className="w-5 h-5" />
           </div>
         </div>
 
-        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex items-center justify-between">
+        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div>
-            <span className="text-xs text-neutral-400 font-semibold uppercase tracking-wider">Total Outflow (Redeemed)</span>
-            <div className="text-xl font-bold text-neutral-200 mt-1">{formatINR(totals.outflow)}</div>
+            <span className="text-[10px] sm:text-xs text-neutral-400 font-semibold uppercase tracking-wider">Total Outflow (Redeemed)</span>
+            <div className="text-lg sm:text-xl font-bold text-neutral-200 mt-0.5">{formatINR(totals.outflow)}</div>
           </div>
-          <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
+          <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center shrink-0">
             <ArrowUpRight className="w-5 h-5" />
           </div>
         </div>
 
-        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex items-center justify-between">
+        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div>
-            <span className="text-xs text-neutral-400 font-semibold uppercase tracking-wider">Total Transactions</span>
-            <div className="text-xl font-bold text-teal-400 mt-1">{totals.count} records</div>
+            <span className="text-[10px] sm:text-xs text-neutral-400 font-semibold uppercase tracking-wider">Total Transactions</span>
+            <div className="text-lg sm:text-xl font-bold text-teal-400 mt-0.5">{totals.count} records</div>
           </div>
-          <div className="w-9 h-9 rounded-xl bg-teal-500/10 text-teal-400 flex items-center justify-center">
+          <div className="w-9 h-9 rounded-xl bg-teal-500/10 text-teal-400 flex items-center justify-center shrink-0">
             <Receipt className="w-5 h-5" />
           </div>
         </div>
@@ -126,12 +121,12 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
       {selectedSchemeFilter && (
         <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-xl p-3 flex items-center justify-between text-xs text-emerald-300">
           <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-emerald-400" />
-            <span>Filtering transactions for Scheme Code: <strong>{selectedSchemeFilter}</strong></span>
+            <Layers className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="truncate">Filtering for Scheme Code: <strong>{selectedSchemeFilter}</strong></span>
           </div>
           <button
             onClick={onClearSchemeFilter}
-            className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-white font-medium cursor-pointer"
+            className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-white font-medium cursor-pointer shrink-0 ml-2"
           >
             Clear Filter
           </button>
@@ -139,7 +134,7 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
       )}
 
       {/* Filter Toolbar */}
-      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
         {/* Search */}
         <div className="relative w-full md:w-80">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
@@ -149,19 +144,19 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
             placeholder="Search scheme name, folio..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-xs bg-neutral-800 border border-neutral-700 rounded-xl text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-emerald-500 transition"
+            className="w-full pl-9 pr-4 py-2.5 text-xs bg-neutral-800 border border-neutral-700 rounded-xl text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-emerald-500 transition min-h-[44px] md:min-h-[38px]"
           />
         </div>
 
         {/* Filters and Actions */}
-        <div className="flex items-center gap-2 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 touch-pan-x no-scrollbar">
           {/* Type Filter */}
           <div className="flex items-center gap-1 bg-neutral-800/80 p-1 rounded-xl border border-neutral-700 text-xs shrink-0">
             {['ALL', 'SIP', 'LUMPSUM', 'REDEMPTION', 'SWITCH_IN'].map((t) => (
               <button
                 key={t}
                 onClick={() => setTypeFilter(t)}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition cursor-pointer font-medium ${
+                className={`px-3 py-2 md:py-1.5 rounded-lg whitespace-nowrap transition cursor-pointer font-medium min-h-[36px] md:min-h-[32px] flex items-center ${
                   typeFilter === t
                     ? 'bg-neutral-700 text-white shadow-sm'
                     : 'text-neutral-400 hover:text-neutral-200'
@@ -176,7 +171,7 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
           <button
             onClick={handleExportCsv}
             title="Download CSV statement"
-            className="px-3 py-2 text-xs font-medium rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 hover:text-white transition flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto"
+            className="px-3 py-2 text-xs font-medium rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 hover:text-white transition flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto min-h-[36px] md:min-h-[32px]"
           >
             <Download className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Export CSV</span>
@@ -184,8 +179,84 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
         </div>
       </div>
 
-      {/* Transaction List Table */}
-      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl shadow-sm overflow-hidden">
+      {/* Mobile Card List View (Visible on screens < md) */}
+      <div className="block md:hidden space-y-3">
+        {displayedTxs.length === 0 ? (
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-8 text-center text-neutral-400">
+            <Receipt className="w-8 h-8 mx-auto text-neutral-600 mb-2" />
+            <p className="font-semibold text-neutral-300">No transactions found</p>
+            <p className="text-xs text-neutral-500 mt-1">Try resetting your filters or import a CAS statement.</p>
+          </div>
+        ) : (
+          displayedTxs.map((tx) => {
+            const isRedemption = tx.type === 'REDEMPTION' || tx.type === 'SWITCH_OUT';
+            return (
+              <div 
+                key={`mobile_tx_${tx.id}`}
+                className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 shadow-sm space-y-2.5"
+              >
+                {/* Top Row: Date & Type Badge */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-mono text-neutral-400 font-medium">
+                    {tx.date}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      tx.type === 'SIP' 
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        : tx.type === 'LUMPSUM'
+                        ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                        : tx.type === 'REDEMPTION'
+                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                        : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                    }`}>
+                      {tx.type}
+                    </span>
+                    <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/40 px-1.5 py-0.5 rounded">
+                      {tx.status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Scheme Name & Folio */}
+                <div>
+                  <div className="font-semibold text-sm text-neutral-100 leading-snug">
+                    {tx.schemeName}
+                  </div>
+                  <div className="text-[11px] text-neutral-400 font-mono mt-0.5">
+                    Folio: {tx.folioNumber}
+                  </div>
+                </div>
+
+                {/* Transaction Financial Summary */}
+                <div className="grid grid-cols-3 gap-2 bg-neutral-950/60 p-2.5 rounded-xl border border-neutral-800/80 text-xs">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-neutral-500 block">Units</span>
+                    <span className="font-mono text-neutral-300 font-medium">
+                      {isRedemption ? '-' : '+'}{tx.units.toFixed(3)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-neutral-500 block">NAV</span>
+                    <span className="font-mono text-neutral-300 font-medium">
+                      ₹{tx.nav.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] uppercase font-bold text-neutral-500 block">Amount</span>
+                    <span className={`font-mono font-bold ${isRedemption ? 'text-blue-400' : 'text-emerald-400'}`}>
+                      {isRedemption ? '-' : '+'}{formatINR(tx.amount)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Desktop Transaction List Table (Visible on md and larger screens) */}
+      <div className="hidden md:block bg-neutral-900 border border-neutral-800 rounded-2xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
@@ -281,19 +352,19 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
             </tbody>
           </table>
         </div>
-
-        {/* Virtualized Load More */}
-        {filteredTxs.length > visibleCount && (
-          <div className="p-4 border-t border-neutral-800 text-center bg-neutral-800/20">
-            <button
-              onClick={() => setVisibleCount(prev => prev + 50)}
-              className="px-4 py-2 text-xs font-semibold rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 transition cursor-pointer"
-            >
-              Showing {visibleCount} of {filteredTxs.length} transactions. Click to load 50 more
-            </button>
-          </div>
-        )}
       </div>
+
+      {/* Virtualized Load More */}
+      {filteredTxs.length > visibleCount && (
+        <div className="p-4 border border-neutral-800 rounded-2xl text-center bg-neutral-900 shadow-sm">
+          <button
+            onClick={() => setVisibleCount(prev => prev + 50)}
+            className="w-full sm:w-auto px-5 py-2.5 text-xs font-semibold rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 transition cursor-pointer min-h-[44px]"
+          >
+            Showing {visibleCount} of {filteredTxs.length} transactions. Click to load 50 more
+          </button>
+        </div>
+      )}
     </div>
   );
 };

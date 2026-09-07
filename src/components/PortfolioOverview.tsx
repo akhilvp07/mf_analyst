@@ -1,22 +1,17 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { 
   TrendingUp, 
-  TrendingDown, 
+  TrendingDown,
   DollarSign, 
   PieChart as PieIcon, 
-  Calendar, 
   ArrowUpRight, 
   ArrowDownRight, 
   Layers, 
-  ShieldCheck, 
-  Award,
   Sparkles,
   Zap,
-  Info,
-  ChevronRight,
-  ExternalLink
+  ChevronRight
 } from 'lucide-react';
-import { PortfolioHolding, PortfolioSummary, AssetAllocation, TransactionRecord } from '../types';
+import { PortfolioHolding, PortfolioSummary, TransactionRecord } from '../types';
 import { formatINR, computeAssetAllocation, computeCategoryAllocation } from '../utils/financialCalculations';
 import { PortfolioGrowthChart } from './PortfolioGrowthChart';
 

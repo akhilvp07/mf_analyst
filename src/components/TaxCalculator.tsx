@@ -1,13 +1,8 @@
 import React, { useMemo } from 'react';
 import { 
   Receipt, 
-  ShieldCheck, 
   Sparkles, 
-  HelpCircle, 
-  ArrowUpRight, 
-  Info, 
-  DollarSign,
-  AlertCircle
+  Info 
 } from 'lucide-react';
 import { PortfolioHolding, TransactionRecord } from '../types';
 import { computeTaxLiability, formatINR } from '../utils/financialCalculations';

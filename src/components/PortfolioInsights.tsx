@@ -2,30 +2,22 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   PieChart as PieIcon, 
   Layers, 
-  TrendingUp, 
   Sparkles, 
   Scale, 
-  ArrowRight, 
   CheckCircle2, 
   AlertTriangle, 
   ShieldCheck, 
   RefreshCw, 
   Sliders, 
-  DollarSign, 
   HelpCircle, 
   Send, 
   ChevronDown, 
   ChevronUp, 
   Info,
-  Flame,
   BarChart3,
-  Coins,
-  Shield,
   Zap,
   Bot,
   RotateCcw,
-  SlidersHorizontal,
-  Edit3,
   Check,
   Target,
   Wallet,
@@ -1690,7 +1682,158 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
             </div>
           </div>
 
-          <div className="overflow-x-auto border border-neutral-800 rounded-xl bg-neutral-950/40">
+          {/* Mobile Card View */}
+          <div className="block md:hidden space-y-3">
+            {equityHoldingsBreakdown.length === 0 ? (
+              <div className="py-8 text-center text-neutral-500 bg-neutral-950/40 rounded-xl border border-neutral-800">
+                No equity-oriented funds found in portfolio.
+              </div>
+            ) : (
+              equityHoldingsBreakdown.map((item) => (
+                <div 
+                  key={`m_${item.schemeCode}_${item.schemeName}`}
+                  className="bg-neutral-950/70 border border-neutral-800 rounded-xl p-4 space-y-3"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h5 className="font-semibold text-white text-xs leading-snug">
+                        {item.schemeName}
+                      </h5>
+                      <div className="text-[10px] text-neutral-400 flex flex-wrap items-center gap-1.5 mt-1">
+                        <span className="bg-neutral-800/80 px-1.5 py-0.5 rounded text-neutral-300">
+                          {item.category}
+                        </span>
+                        {item.isHybrid && (
+                          <span className="bg-cyan-500/10 text-cyan-400 px-1.5 py-0.5 rounded border border-cyan-500/20">
+                            65% Equity
+                          </span>
+                        )}
+                        {item.isCustomized ? (
+                          <span className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/20 font-medium">
+                            Custom Override
+                          </span>
+                        ) : item.isFactsheetDefault ? (
+                          <span className="bg-indigo-500/10 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/20 font-medium">
+                            {item.sourceName || 'AMC Factsheet'}
+                          </span>
+                        ) : (
+                          <span className="bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded">
+                            SEBI Benchmark
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <div className="text-xs font-bold font-mono text-neutral-200">
+                        {formatINR(item.effectiveEquityValue, true)}
+                      </div>
+                      <div className="text-[10px] text-neutral-400 font-mono">
+                        {item.weightInEquity.toFixed(1)}% of Eq
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Market Cap Inputs Grid */}
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-neutral-800/80">
+                    {/* Large Cap */}
+                    <div className="bg-neutral-900/90 p-2 rounded-lg border border-neutral-800 text-center">
+                      <span className="text-[10px] font-bold text-indigo-400 block mb-1">Large Cap</span>
+                      <div className="flex items-center justify-center">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={item.largeCapPct}
+                          onChange={(e) => handleUpdateFundSplit(item.key, { largeCap: Number(e.target.value) }, item.defaultSplit)}
+                          className="w-14 text-center font-mono font-bold text-xs bg-neutral-950 border border-neutral-700 focus:border-indigo-500 rounded py-1 text-indigo-300 outline-none"
+                        />
+                        <span className="text-neutral-500 text-[10px] ml-0.5">%</span>
+                      </div>
+                      <span className="text-[9px] text-neutral-400 font-mono mt-1 block">
+                        {formatINR(item.largeCapVal, true)}
+                      </span>
+                    </div>
+
+                    {/* Mid Cap */}
+                    <div className="bg-neutral-900/90 p-2 rounded-lg border border-neutral-800 text-center">
+                      <span className="text-[10px] font-bold text-teal-400 block mb-1">Mid Cap</span>
+                      <div className="flex items-center justify-center">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={item.midCapPct}
+                          onChange={(e) => handleUpdateFundSplit(item.key, { midCap: Number(e.target.value) }, item.defaultSplit)}
+                          className="w-14 text-center font-mono font-bold text-xs bg-neutral-950 border border-neutral-700 focus:border-teal-500 rounded py-1 text-teal-300 outline-none"
+                        />
+                        <span className="text-neutral-500 text-[10px] ml-0.5">%</span>
+                      </div>
+                      <span className="text-[9px] text-neutral-400 font-mono mt-1 block">
+                        {formatINR(item.midCapVal, true)}
+                      </span>
+                    </div>
+
+                    {/* Small Cap */}
+                    <div className="bg-neutral-900/90 p-2 rounded-lg border border-neutral-800 text-center">
+                      <span className="text-[10px] font-bold text-purple-400 block mb-1">Small Cap</span>
+                      <div className="flex items-center justify-center">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={item.smallCapPct}
+                          onChange={(e) => handleUpdateFundSplit(item.key, { smallCap: Number(e.target.value) }, item.defaultSplit)}
+                          className="w-14 text-center font-mono font-bold text-xs bg-neutral-950 border border-neutral-700 focus:border-purple-500 rounded py-1 text-purple-300 outline-none"
+                        />
+                        <span className="text-neutral-500 text-[10px] ml-0.5">%</span>
+                      </div>
+                      <span className="text-[9px] text-neutral-400 font-mono mt-1 block">
+                        {formatINR(item.smallCapVal, true)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Actions & Status footer */}
+                  <div className="flex items-center justify-between pt-2 border-t border-neutral-800/60 text-xs">
+                    <div>
+                      {Math.abs(item.sumPct - 100) < 0.05 ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <Check className="w-3 h-3" />
+                          Sum: {item.sumPct === 100 ? '100%' : `${item.sumPct}%`}
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleNormalizeFundSplit(item.key, item.defaultSplit)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition"
+                          title="Click to normalize Large, Mid, and Small Cap to exactly 100%"
+                        >
+                          <AlertTriangle className="w-3 h-3 text-amber-400" />
+                          Sum: {item.sumPct}% (Normalize)
+                        </button>
+                      )}
+                    </div>
+
+                    {item.isCustomized && (
+                      <button
+                        onClick={() => handleResetFundSplit(item.key)}
+                        className="text-[11px] text-neutral-400 hover:text-amber-400 flex items-center gap-1 transition"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        Reset to default
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto border border-neutral-800 rounded-xl bg-neutral-950/40">
             <table className="w-full text-left text-xs">
               <thead className="bg-neutral-800/40 text-neutral-400 border-b border-neutral-800">
                 <tr>

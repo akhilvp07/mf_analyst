@@ -1,17 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Calculator, 
-  TrendingUp, 
   Sparkles, 
   Award, 
-  Percent, 
-  CheckCircle2,
   Wallet,
-  ArrowRight,
-  Layers,
   Plus,
-  Minus,
-  RotateCcw
+  Minus
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
