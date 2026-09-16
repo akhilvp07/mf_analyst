@@ -148,7 +148,21 @@ export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({
 
   // User-defined fund market cap splits (persisted to localStorage)
   const [fundMarketCapSplits, setFundMarketCapSplits] = useState<Record<string, FundMarketCapSplit>>(() => {
-    return loadFundMarketCapSplits();
+    const loaded = loadFundMarketCapSplits();
+    let updated = false;
+    for (const key of Object.keys(loaded)) {
+      const lower = key.toLowerCase();
+      if (lower.includes('sbi') && (lower.includes('small cap') || lower.includes('smallcap'))) {
+        if (loaded[key].smallCap === 93.3 || (loaded[key].midCap === 7.7 && loaded[key].smallCap !== 92.3)) {
+          loaded[key] = { ...loaded[key], midCap: 7.7, smallCap: 92.3, largeCap: 0 };
+          updated = true;
+        }
+      }
+    }
+    if (updated) {
+      saveFundMarketCapSplits(loaded);
+    }
+    return loaded;
   });
 
   // Active SIP schemes to consider for monthly SIP recommendations (persisted to localStorage)

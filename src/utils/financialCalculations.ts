@@ -2181,8 +2181,8 @@ export const KNOWN_SCHEME_FACTSHEET_SPLITS: Record<string, import('../types').Fu
   'icici prudential equity & debt': { largeCap: 76.50, midCap: 18.20, smallCap: 5.30, sourceName: 'ICICI Pru Factsheet' },
 
   // SBI Mutual Fund
-  'sbi small cap': { largeCap: 0.00, midCap: 7.70, smallCap: 93.30, sourceName: 'SBI MF Factsheet' },
-  'sbi smallcap': { largeCap: 0.00, midCap: 7.70, smallCap: 93.30, sourceName: 'SBI MF Factsheet' },
+  'sbi small cap': { largeCap: 0.00, midCap: 7.70, smallCap: 92.30, sourceName: 'SBI MF Factsheet' },
+  'sbi smallcap': { largeCap: 0.00, midCap: 7.70, smallCap: 92.30, sourceName: 'SBI MF Factsheet' },
   'sbi magnum midcap': { largeCap: 13.20, midCap: 79.60, smallCap: 7.20, sourceName: 'SBI MF Factsheet' },
   'sbi bluechip': { largeCap: 91.80, midCap: 8.20, smallCap: 0.00, sourceName: 'SBI MF Factsheet' },
   'sbi flexicap': { largeCap: 71.40, midCap: 21.20, smallCap: 7.40, sourceName: 'SBI MF Factsheet' },
