@@ -239,3 +239,86 @@ export interface FundMarketCapSplit {
   smallCap: number; // 0-100%
 }
 
+export type GoalCategory = 
+  | 'RETIREMENT' 
+  | 'EDUCATION' 
+  | 'EMERGENCY' 
+  | 'WEALTH' 
+  | 'PROPERTY' 
+  | 'VEHICLE' 
+  | 'TRAVEL' 
+  | 'CUSTOM';
+
+export interface GoalHoldingAllocation {
+  schemeCode: string;
+  schemeName?: string;
+  percentage: number; // 0 to 100% of this holding allocated to this goal
+}
+
+export interface PortfolioGoal {
+  id: string;
+  name: string;
+  category: GoalCategory;
+  targetAmount: number;
+  targetYear: number;
+  targetMonth?: number;
+  expectedCagr: number; // e.g. 12%
+  monthlySip: number;   // current monthly SIP earmarked for this goal
+  allocatedHoldings: GoalHoldingAllocation[];
+  notes?: string;
+  createdAt: string;
+}
+
+export interface GoalAnalysisResult {
+  goal: PortfolioGoal;
+  currentValue: number;
+  investedAmount: number;
+  gain: number;
+  gainPct: number;
+  progressPct: number;
+  remainingMonths: number;
+  targetDeficit: number;
+  projectedMaturityValue: number;
+  isFunded: boolean;
+  shortfallOrSurplus: number;
+  requiredMonthlySip: number;
+  additionalSipNeeded: number;
+  currentAssetSplit: {
+    equityPct: number;
+    debtPct: number;
+    hybridPct: number;
+    goldPct: number;
+    cashPct: number;
+  };
+  recommendedAssetSplit: {
+    equityPct: number;
+    debtPct: number;
+    rationale: string;
+    riskStatus: 'OPTIMAL' | 'TOO_AGGRESSIVE' | 'TOO_CONSERVATIVE';
+  };
+}
+
+export interface CapitalGainsAuditRow {
+  id: string;
+  isin: string;
+  schemeCode: string;
+  schemeName: string;
+  folioNumber: string;
+  assetClass: 'EQUITY' | 'DEBT' | 'HYBRID' | 'OTHER';
+  holdingPeriodDays: number;
+  gainType: 'LTCG' | 'STCG' | 'DEBT_SLAB';
+  purchaseDate: string;
+  sellDate: string; // or valuation date for unrealized
+  isRealized: boolean;
+  units: number;
+  buyNav: number;
+  sellNav: number;
+  purchaseCost: number;
+  saleValue: number;
+  grossGain: number;
+  fmv2018Nav?: number;
+  taxableGain: number;
+  applicableTaxRatePct: number;
+  estimatedTax: number;
+}
+

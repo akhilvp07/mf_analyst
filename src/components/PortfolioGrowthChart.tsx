@@ -40,6 +40,17 @@ export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({
     return computeHistoricalPortfolioGrowth(transactions, holdings, summary, timeframe);
   }, [transactions, holdings, summary, timeframe]);
 
+  // Pre-warm cache for all timeframes in background so every period button click is 0ms instant
+  React.useEffect(() => {
+    const timeframes: Timeframe[] = ['1M', '6M', '1Y', '3Y', 'ALL'];
+    const timer = setTimeout(() => {
+      timeframes.forEach(tf => {
+        computeHistoricalPortfolioGrowth(transactions, holdings, summary, tf);
+      });
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [transactions, holdings, summary]);
+
   // Apply LTTB downsampling for high-speed 60fps rendering if large dataset
   const chartData = useMemo(() => {
     if (!useLttb || rawChartData.length < 80) return rawChartData;
@@ -95,8 +106,9 @@ export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({
           {(['1M', '6M', '1Y', '3Y', 'ALL'] as Timeframe[]).map((tf) => (
             <button
               key={tf}
+              id={`growth-timeframe-${tf}`}
               onClick={() => setTimeframe(tf)}
-              className={`px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
                 timeframe === tf
                   ? 'bg-emerald-600 text-white shadow-sm'
                   : 'text-neutral-400 hover:text-white hover:bg-neutral-700/50'
@@ -112,7 +124,7 @@ export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({
           {/* Nifty 50 Benchmark toggle */}
           <button
             onClick={() => setShowBenchmark(!showBenchmark)}
-            className={`px-3 py-1.5 rounded-lg font-medium border transition flex items-center gap-1.5 cursor-pointer ${
+            className={`px-3 py-1.5 rounded-lg font-medium border transition-colors flex items-center gap-1.5 cursor-pointer ${
               showBenchmark
                 ? 'bg-neutral-800 text-teal-400 border-teal-500/30'
                 : 'bg-neutral-900 text-neutral-500 border-neutral-800 hover:text-neutral-300'
@@ -126,7 +138,7 @@ export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({
           <button
             onClick={() => setUseLttb(!useLttb)}
             title="Toggle Largest-Triangle-Three-Buckets time-series downsampling for ultra high performance"
-            className={`px-3 py-1.5 rounded-lg font-medium border transition flex items-center gap-1.5 cursor-pointer ${
+            className={`px-3 py-1.5 rounded-lg font-medium border transition-colors flex items-center gap-1.5 cursor-pointer ${
               useLttb
                 ? 'bg-emerald-950/40 text-emerald-400 border-emerald-500/30'
                 : 'bg-neutral-800 text-neutral-400 border-neutral-700'
@@ -274,6 +286,7 @@ export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({
               strokeWidth={2.5}
               fillOpacity={1}
               fill="url(#netWorthGrad)"
+              isAnimationActive={false}
               activeDot={{ r: 5, stroke: '#10b981', strokeWidth: 2, fill: '#052e16' }}
             />
 
@@ -286,6 +299,7 @@ export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({
               strokeDasharray="4 4"
               fillOpacity={1}
               fill="url(#investedGrad)"
+              isAnimationActive={false}
             />
 
             {showBenchmark && (
@@ -298,6 +312,7 @@ export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({
                 strokeDasharray="2 2"
                 fillOpacity={0}
                 fill="none"
+                isAnimationActive={false}
               />
             )}
           </AreaChart>

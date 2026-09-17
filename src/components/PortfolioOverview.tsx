@@ -1,19 +1,20 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { 
   TrendingUp, 
-  TrendingDown,
+  TrendingDown, 
   DollarSign, 
   PieChart as PieIcon, 
   ArrowUpRight, 
   ArrowDownRight, 
   Layers, 
-  Sparkles,
-  Zap,
-  ChevronRight
+  Sparkles, 
+  Zap, 
+  ChevronRight 
 } from 'lucide-react';
 import { PortfolioHolding, PortfolioSummary, TransactionRecord } from '../types';
 import { formatINR, computeAssetAllocation, computeCategoryAllocation } from '../utils/financialCalculations';
 import { PortfolioGrowthChart } from './PortfolioGrowthChart';
+import { PrivacyValue } from '../context/PrivacyContext';
 
 interface PortfolioOverviewProps {
   summary: PortfolioSummary;
@@ -30,15 +31,14 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
   onNavigateTab,
   onOpenImport
 }) => {
-  const assetAllocation = computeAssetAllocation(holdings);
-  const categoryAllocations = computeCategoryAllocation(holdings).slice(0, 4);
+  const assetAllocation = useMemo(() => computeAssetAllocation(holdings), [holdings]);
+  const categoryAllocations = useMemo(() => computeCategoryAllocation(holdings).slice(0, 4), [holdings]);
 
   const isDayPositive = summary.dayGain >= 0;
   const isTotalPositive = summary.totalGain >= 0;
 
   // Benchmark stats (Historical Nifty averages for comparison)
   const nifty50Cagr = 14.8;
-  const nifty500Cagr = 16.2;
   const alphaVsNifty50 = summary.xirr - nifty50Cagr;
 
   return (
@@ -53,12 +53,14 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-            {formatINR(summary.totalCurrentValue)}
+          <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight font-mono">
+            <PrivacyValue value={formatINR(summary.totalCurrentValue)} />
           </div>
           <div className="mt-3 flex items-center justify-between text-xs border-t border-neutral-800/80 pt-2.5">
             <span className="text-neutral-400">Total Capital Invested</span>
-            <span className="font-semibold text-neutral-200">{formatINR(summary.totalInvestedAmount)}</span>
+            <span className="font-semibold text-neutral-200 font-mono">
+              <PrivacyValue value={formatINR(summary.totalInvestedAmount)} />
+            </span>
           </div>
         </div>
 
@@ -71,8 +73,8 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className={`text-2xl sm:text-3xl font-extrabold tracking-tight ${isTotalPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {isTotalPositive ? '+' : ''}{formatINR(summary.totalGain)}
+            <span className={`text-2xl sm:text-3xl font-extrabold tracking-tight font-mono ${isTotalPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+              <PrivacyValue value={`${isTotalPositive ? '+' : ''}${formatINR(summary.totalGain)}`} />
             </span>
           </div>
           <div className="mt-3 flex items-center justify-between text-xs border-t border-neutral-800/80 pt-2.5">
@@ -93,7 +95,7 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-extrabold text-teal-400 tracking-tight">
+            <span className="text-2xl sm:text-3xl font-extrabold text-teal-400 tracking-tight font-mono">
               {summary.xirr > 0 ? `+${summary.xirr.toFixed(2)}%` : `${summary.xirr.toFixed(2)}%`}
             </span>
             <span className="text-xs text-neutral-500 font-medium">p.a.</span>
@@ -115,8 +117,8 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className={`text-2xl sm:text-3xl font-extrabold tracking-tight ${isDayPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {isDayPositive ? '+' : ''}{formatINR(summary.dayGain)}
+            <span className={`text-2xl sm:text-3xl font-extrabold tracking-tight font-mono ${isDayPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+              <PrivacyValue value={`${isDayPositive ? '+' : ''}${formatINR(summary.dayGain)}`} />
             </span>
           </div>
           <div className="mt-3 flex items-center justify-between text-xs border-t border-neutral-800/80 pt-2.5">
@@ -142,60 +144,57 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
           </div>
         </div>
 
-        <PortfolioGrowthChart holdings={holdings} summary={summary} transactions={transactions} />
+        <PortfolioGrowthChart transactions={transactions} holdings={holdings} summary={summary} />
       </div>
 
-      {/* Two Columns: Asset Allocation & Top Performing Funds */}
+      {/* 2-Column Split: Top Holdings Performance vs Allocation */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Cols: Top Holdings Quick View */}
-        <div className="lg:col-span-2 bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-sm">
+        {/* Left 2 Cols: Holdings Quick Matrix */}
+        <div className="lg:col-span-2 bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Layers className="w-4 h-4 text-teal-400" />
-                Active Schemes & Holdings ({holdings.length})
+                <Layers className="w-4 h-4 text-emerald-400" />
+                Active Mutual Fund Holdings ({holdings.length})
               </h3>
-              <p className="text-xs text-neutral-400 mt-0.5">Ranked by allocation weighting</p>
+              <p className="text-xs text-neutral-400 mt-0.5">Quick glance at your largest allocations and returns</p>
             </div>
             <button
               onClick={() => onNavigateTab('holdings')}
               className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer"
             >
-              View Full Table <ChevronRight className="w-3.5 h-3.5" />
+              <span>View All</span>
+              <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          <div className="space-y-3">
+          <div className="divide-y divide-neutral-800/80">
             {holdings.slice(0, 4).map((holding) => {
               const isHoldingProfit = holding.totalGain >= 0;
               return (
                 <div 
-                  key={holding.schemeCode}
-                  className="bg-neutral-800/50 hover:bg-neutral-800 border border-neutral-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition"
+                  key={`${holding.schemeCode}_${holding.folioNumber}`}
+                  onClick={() => onNavigateTab('holdings')}
+                  className="py-3 flex items-center justify-between gap-4 hover:bg-neutral-800/30 px-2 rounded-xl transition cursor-pointer"
                 >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-neutral-100 text-sm truncate">
-                        {holding.schemeName}
-                      </span>
-                      <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-700/60 text-neutral-300 shrink-0">
-                        {holding.category}
-                      </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-xs text-neutral-200 truncate">
+                      {holding.schemeName}
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-neutral-400 mt-1">
-                      <span>Folio: <strong className="text-neutral-300 font-mono">{holding.folioNumber}</strong></span>
-                      <span>Units: <strong className="text-neutral-300">{holding.units.toFixed(2)}</strong></span>
-                      <span>NAV: <strong className="text-neutral-300">₹{holding.currentNav.toFixed(2)}</strong></span>
+                    <div className="flex items-center gap-2 text-[11px] text-neutral-400 mt-0.5">
+                      <span>{holding.category}</span>
+                      <span>•</span>
+                      <span>Weight: <strong className="text-neutral-300">{holding.allocationPercentage.toFixed(1)}%</strong></span>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-6 shrink-0 text-right">
-                    <div>
-                      <div className="text-sm font-bold text-white">
-                        {formatINR(holding.currentValue)}
+                  <div className="flex items-center gap-4 shrink-0 font-mono">
+                    <div className="text-right">
+                      <div className="text-xs font-bold text-white">
+                        <PrivacyValue value={formatINR(holding.currentValue)} />
                       </div>
-                      <div className="text-xs text-neutral-400">
-                        Invested: {formatINR(holding.investedAmount, true)}
+                      <div className="text-[11px] text-neutral-400">
+                        Inv: <PrivacyValue value={formatINR(holding.investedAmount, true)} />
                       </div>
                     </div>
 

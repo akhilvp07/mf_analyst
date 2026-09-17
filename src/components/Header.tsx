@@ -6,15 +6,20 @@ import {
   Layers, 
   PieChart, 
   Receipt, 
-  Calculator
+  Calculator,
+  Target,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { formatINR } from '../utils/financialCalculations';
 import { PortfolioSummary } from '../types';
+import { usePrivacy, PrivacyValue } from '../context/PrivacyContext';
 
 export type ActiveTab = 
   | 'overview' 
   | 'holdings' 
   | 'transactions' 
+  | 'goals'
   | 'insights' 
   | 'tax' 
   | 'simulator' 
@@ -37,12 +42,14 @@ export const Header: React.FC<HeaderProps> = ({
   onSyncNavs
 }) => {
   const isPositiveDay = summary.dayGain >= 0;
+  const { isPrivacyMode, togglePrivacyMode } = usePrivacy();
 
   const navItems = [
     { id: 'overview' as ActiveTab, label: 'Dashboard', icon: TrendingUp },
     { id: 'holdings' as ActiveTab, label: 'Holdings', icon: Layers, badge: summary.holdingsCount },
     { id: 'transactions' as ActiveTab, label: 'Ledger', icon: Receipt, badge: summary.transactionsCount },
-    { id: 'insights' as ActiveTab, label: 'Asset Insights & Allocation', icon: PieChart },
+    { id: 'goals' as ActiveTab, label: 'Goal Buckets & Glidepath', icon: Target },
+    { id: 'insights' as ActiveTab, label: 'Asset Allocation', icon: PieChart },
     { id: 'tax' as ActiveTab, label: 'Capital Gains & Tax', icon: Receipt },
     { id: 'simulator' as ActiveTab, label: 'SIP Compounding', icon: Calculator },
     { id: 'import' as ActiveTab, label: 'CAS Import & Backup', icon: UploadCloud }
@@ -68,44 +75,58 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
             <p className="text-xs text-neutral-400 flex items-center gap-1.5 mt-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              AMFI Live Sync • Newton-Raphson XIRR • 100% Client-Side Privacy
+              AMFI Live Sync • Newton-Raphson XIRR • Instant SWR Caching
             </p>
           </div>
         </div>
 
-        {/* Quick Ticker Pill */}
+        {/* Quick Ticker Pill & Action Buttons */}
         <div className="flex items-center gap-3 overflow-x-auto pb-1 md:pb-0">
           <div className="bg-neutral-800/80 border border-neutral-700/60 rounded-xl px-3.5 py-1.5 flex items-center gap-4 text-xs shrink-0">
             <div>
               <span className="text-neutral-400 block text-[10px] uppercase font-medium">Net Worth</span>
-              <span className="font-semibold text-white text-sm">
-                {formatINR(summary.totalCurrentValue, true)}
+              <span className="font-semibold text-white text-sm font-mono">
+                <PrivacyValue value={formatINR(summary.totalCurrentValue, true)} />
               </span>
             </div>
             <div className="w-px h-6 bg-neutral-700"></div>
             <div>
               <span className="text-neutral-400 block text-[10px] uppercase font-medium">Annualized XIRR</span>
-              <span className="font-semibold text-emerald-400 text-sm">
+              <span className="font-semibold text-emerald-400 text-sm font-mono">
                 {summary.xirr > 0 ? `+${summary.xirr.toFixed(2)}%` : `${summary.xirr.toFixed(2)}%`}
               </span>
             </div>
             <div className="w-px h-6 bg-neutral-700"></div>
             <div>
               <span className="text-neutral-400 block text-[10px] uppercase font-medium">1D Change</span>
-              <span className={`font-semibold text-sm ${isPositiveDay ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {isPositiveDay ? '+' : ''}{formatINR(summary.dayGain, true)} ({isPositiveDay ? '+' : ''}{summary.dayGainPercentage.toFixed(2)}%)
+              <span className={`font-semibold text-sm font-mono ${isPositiveDay ? 'text-emerald-400' : 'text-rose-400'}`}>
+                <PrivacyValue value={`${isPositiveDay ? '+' : ''}${formatINR(summary.dayGain, true)} (${isPositiveDay ? '+' : ''}${summary.dayGainPercentage.toFixed(2)}%)`} />
               </span>
             </div>
           </div>
 
-          {/* Sync Button */}
+          {/* Privacy Toggle & Sync Button */}
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              id="privacy-toggle-btn"
+              onClick={togglePrivacyMode}
+              title={isPrivacyMode ? 'Disable Privacy Mode (Show Figures)' : 'Enable Privacy Mode (Mask Figures for Public Screen)'}
+              className={`p-2 rounded-lg border transition cursor-pointer flex items-center justify-center ${
+                isPrivacyMode 
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-500/10' 
+                  : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white border-neutral-700'
+              }`}
+              aria-label="Toggle Privacy Mode"
+            >
+              {isPrivacyMode ? <EyeOff className="w-4 h-4 text-amber-400" /> : <Eye className="w-4 h-4" />}
+            </button>
+
             <button
               id="sync-nav-btn"
               onClick={onSyncNavs}
               disabled={isSyncingNavs}
               title="Sync live NAVs from AMFI"
-              className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow-sm shadow-emerald-900/30 cursor-pointer disabled:opacity-50"
+              className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow-sm shadow-emerald-900/30 cursor-pointer disabled:opacity-50 min-h-[36px]"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncingNavs ? 'animate-spin' : ''}`} />
               <span>{isSyncingNavs ? 'Syncing...' : 'Sync NAVs'}</span>
@@ -125,7 +146,7 @@ export const Header: React.FC<HeaderProps> = ({
                 key={item.id}
                 id={`tab-btn-${item.id}`}
                 onClick={() => setActiveTab(item.id)}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg whitespace-nowrap transition cursor-pointer ${
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg whitespace-nowrap transition-colors duration-75 cursor-pointer ${
                   isActive
                     ? 'bg-neutral-800 text-emerald-400 border border-neutral-700 font-semibold shadow-sm'
                     : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/40'

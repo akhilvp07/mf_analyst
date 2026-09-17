@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Search, 
   ArrowUpDown, 
@@ -6,17 +6,24 @@ import {
   Download, 
   ArrowUpRight, 
   ArrowDownLeft, 
-  Layers
+  Layers,
+  SlidersHorizontal,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 import { TransactionRecord } from '../types';
 import { formatINR } from '../utils/financialCalculations';
 import { exportTransactionsToCsv } from '../services/portfolioStorage';
+import { MobileBottomSheet } from './MobileBottomSheet';
+import { PrivacyValue } from '../context/PrivacyContext';
 
 interface TransactionLedgerProps {
   transactions: TransactionRecord[];
   selectedSchemeFilter?: string;
   onClearSchemeFilter?: () => void;
 }
+
+const STORAGE_KEY_TX_DENSITY = 'mftracker_tx_density_v1';
 
 export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
   transactions,
@@ -26,7 +33,23 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [sortAsc, setSortAsc] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(50); // Virtualized window batching
+  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+  const [density, setDensity] = useState<'compact' | 'detailed'>(() => {
+    try {
+      return (localStorage.getItem(STORAGE_KEY_TX_DENSITY) as 'compact' | 'detailed') || 'detailed';
+    } catch {
+      return 'detailed';
+    }
+  });
+
+  // Dynamic Virtualization window state
+  const [visibleCount, setVisibleCount] = useState(80);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_TX_DENSITY, density);
+    } catch {}
+  }, [density]);
 
   // Filter & sort
   const filteredTxs = useMemo(() => {
@@ -80,7 +103,9 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
     document.body.removeChild(link);
   };
 
-  const displayedTxs = filteredTxs.slice(0, visibleCount);
+  const displayedTxs = useMemo(() => {
+    return filteredTxs.slice(0, visibleCount);
+  }, [filteredTxs, visibleCount]);
 
   return (
     <div className="space-y-4">
@@ -89,7 +114,9 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div>
             <span className="text-[10px] sm:text-xs text-neutral-400 font-semibold uppercase tracking-wider">Total Inflow (Invested)</span>
-            <div className="text-lg sm:text-xl font-bold text-white mt-0.5">{formatINR(totals.inflow)}</div>
+            <div className="text-lg sm:text-xl font-bold text-white mt-0.5 font-mono">
+              <PrivacyValue value={formatINR(totals.inflow)} />
+            </div>
           </div>
           <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
             <ArrowDownLeft className="w-5 h-5" />
@@ -99,7 +126,9 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div>
             <span className="text-[10px] sm:text-xs text-neutral-400 font-semibold uppercase tracking-wider">Total Outflow (Redeemed)</span>
-            <div className="text-lg sm:text-xl font-bold text-neutral-200 mt-0.5">{formatINR(totals.outflow)}</div>
+            <div className="text-lg sm:text-xl font-bold text-neutral-200 mt-0.5 font-mono">
+              <PrivacyValue value={formatINR(totals.outflow)} />
+            </div>
           </div>
           <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center shrink-0">
             <ArrowUpRight className="w-5 h-5" />
@@ -109,7 +138,7 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div>
             <span className="text-[10px] sm:text-xs text-neutral-400 font-semibold uppercase tracking-wider">Total Transactions</span>
-            <div className="text-lg sm:text-xl font-bold text-teal-400 mt-0.5">{totals.count} records</div>
+            <div className="text-lg sm:text-xl font-bold text-teal-400 mt-0.5 font-mono">{totals.count} records</div>
           </div>
           <div className="w-9 h-9 rounded-xl bg-teal-500/10 text-teal-400 flex items-center justify-center shrink-0">
             <Receipt className="w-5 h-5" />
@@ -150,21 +179,52 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
 
         {/* Filters and Actions */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 touch-pan-x no-scrollbar">
-          {/* Type Filter */}
-          <div className="flex items-center gap-1 bg-neutral-800/80 p-1 rounded-xl border border-neutral-700 text-xs shrink-0">
+          {/* Mobile Filter Button */}
+          <button
+            onClick={() => setIsMobileFilterOpen(true)}
+            className="md:hidden px-3 py-2 text-xs font-medium rounded-xl bg-neutral-800 border border-neutral-700 text-neutral-200 flex items-center gap-1.5 min-h-[44px]"
+          >
+            <SlidersHorizontal className="w-4 h-4 text-emerald-400" />
+            <span>Filter & Sort ({typeFilter})</span>
+          </button>
+
+          {/* Type Filter Pills (Desktop) */}
+          <div className="hidden md:flex items-center gap-1 bg-neutral-800/80 p-1 rounded-xl border border-neutral-700 text-xs shrink-0">
             {['ALL', 'SIP', 'LUMPSUM', 'REDEMPTION', 'SWITCH_IN'].map((t) => (
               <button
                 key={t}
                 onClick={() => setTypeFilter(t)}
-                className={`px-3 py-2 md:py-1.5 rounded-lg whitespace-nowrap transition cursor-pointer font-medium min-h-[36px] md:min-h-[32px] flex items-center ${
+                className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition cursor-pointer font-medium text-xs flex items-center ${
                   typeFilter === t
-                    ? 'bg-neutral-700 text-white shadow-sm'
+                    ? 'bg-neutral-700 text-white shadow-sm font-semibold'
                     : 'text-neutral-400 hover:text-neutral-200'
                 }`}
               >
                 {t}
               </button>
             ))}
+          </div>
+
+          {/* Density Toggle */}
+          <div className="hidden sm:flex items-center gap-0.5 bg-neutral-800/80 p-1 rounded-xl border border-neutral-700 text-xs shrink-0">
+            <button
+              onClick={() => setDensity('detailed')}
+              className={`p-1.5 rounded-lg transition cursor-pointer ${
+                density === 'detailed' ? 'bg-neutral-700 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'
+              }`}
+              title="Detailed view"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setDensity('compact')}
+              className={`p-1.5 rounded-lg transition cursor-pointer ${
+                density === 'compact' ? 'bg-neutral-700 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'
+              }`}
+              title="Compact view"
+            >
+              <List className="w-3.5 h-3.5" />
+            </button>
           </div>
 
           {/* Export CSV */}
@@ -193,7 +253,9 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
             return (
               <div 
                 key={`mobile_tx_${tx.id}`}
-                className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 shadow-sm space-y-2.5"
+                className={`bg-neutral-900 border border-neutral-800 rounded-2xl shadow-sm ${
+                  density === 'compact' ? 'p-3 space-y-1.5' : 'p-4 space-y-2.5'
+                }`}
               >
                 {/* Top Row: Date & Type Badge */}
                 <div className="flex items-center justify-between gap-2">
@@ -245,7 +307,7 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
                   <div className="text-right">
                     <span className="text-[10px] uppercase font-bold text-neutral-500 block">Amount</span>
                     <span className={`font-mono font-bold ${isRedemption ? 'text-blue-400' : 'text-emerald-400'}`}>
-                      {isRedemption ? '-' : '+'}{formatINR(tx.amount)}
+                      <PrivacyValue value={`${isRedemption ? '-' : '+'}${formatINR(tx.amount)}`} />
                     </span>
                   </div>
                 </div>
@@ -290,25 +352,27 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
               ) : (
                 displayedTxs.map((tx) => {
                   const isRedemption = tx.type === 'REDEMPTION' || tx.type === 'SWITCH_OUT';
+                  const rowPy = density === 'compact' ? 'py-2' : 'py-3.5';
+
                   return (
                     <tr key={tx.id} className="hover:bg-neutral-800/40 transition">
                       {/* Date */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
+                      <td className={`${rowPy} px-4 whitespace-nowrap`}>
                         <div className="font-mono text-neutral-300 font-medium">{tx.date}</div>
                       </td>
 
                       {/* Scheme & Folio */}
-                      <td className="py-3.5 px-4">
+                      <td className={`${rowPy} px-4`}>
                         <div className="font-semibold text-neutral-100 max-w-xs truncate" title={tx.schemeName}>
                           {tx.schemeName}
                         </div>
-                        <div className="text-[11px] text-neutral-400 font-mono mt-0.5">
+                        <div className="text-[10px] text-neutral-400 font-mono mt-0.5">
                           Folio: {tx.folioNumber}
                         </div>
                       </td>
 
                       {/* Type Badge */}
-                      <td className="py-3.5 px-3 whitespace-nowrap">
+                      <td className={`${rowPy} px-3 whitespace-nowrap`}>
                         <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                           tx.type === 'SIP' 
                             ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
@@ -323,24 +387,24 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
                       </td>
 
                       {/* Units */}
-                      <td className="py-3.5 px-3 text-right font-mono font-medium text-neutral-300 whitespace-nowrap">
+                      <td className={`${rowPy} px-3 text-right font-mono font-medium text-neutral-300 whitespace-nowrap`}>
                         {isRedemption ? '-' : '+'}{tx.units.toFixed(3)}
                       </td>
 
                       {/* NAV */}
-                      <td className="py-3.5 px-3 text-right font-mono text-neutral-300 whitespace-nowrap">
+                      <td className={`${rowPy} px-3 text-right font-mono text-neutral-300 whitespace-nowrap`}>
                         ₹{tx.nav.toFixed(2)}
                       </td>
 
                       {/* Amount */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap font-mono font-bold">
+                      <td className={`${rowPy} px-4 text-right whitespace-nowrap font-mono font-bold`}>
                         <span className={isRedemption ? 'text-blue-400' : 'text-emerald-400'}>
-                          {isRedemption ? '-' : '+'}{formatINR(tx.amount)}
+                          <PrivacyValue value={`${isRedemption ? '-' : '+'}${formatINR(tx.amount)}`} />
                         </span>
                       </td>
 
                       {/* Status */}
-                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                      <td className={`${rowPy} px-3 text-center whitespace-nowrap`}>
                         <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-md">
                           {tx.status}
                         </span>
@@ -358,13 +422,71 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
       {filteredTxs.length > visibleCount && (
         <div className="p-4 border border-neutral-800 rounded-2xl text-center bg-neutral-900 shadow-sm">
           <button
-            onClick={() => setVisibleCount(prev => prev + 50)}
+            onClick={() => setVisibleCount(prev => prev + 100)}
             className="w-full sm:w-auto px-5 py-2.5 text-xs font-semibold rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 transition cursor-pointer min-h-[44px]"
           >
-            Showing {visibleCount} of {filteredTxs.length} transactions. Click to load 50 more
+            Showing {displayedTxs.length} of {filteredTxs.length} transactions. Click to load 100 more
           </button>
         </div>
       )}
+
+      {/* Mobile Bottom Sheet Filter Modal */}
+      <MobileBottomSheet
+        isOpen={isMobileFilterOpen}
+        onClose={() => setIsMobileFilterOpen(false)}
+        title="Filter & Sort Transactions"
+        subtitle="Quickly adjust ledger parameters"
+      >
+        <div className="space-y-4 text-xs">
+          <div>
+            <label className="text-neutral-400 font-bold uppercase tracking-wider block mb-2 text-[10px]">
+              Transaction Type
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {['ALL', 'SIP', 'LUMPSUM', 'REDEMPTION', 'SWITCH_IN'].map((t) => (
+                <button
+                  key={t}
+                  onClick={() => {
+                    setTypeFilter(t);
+                    setIsMobileFilterOpen(false);
+                  }}
+                  className={`p-2.5 rounded-xl border text-center font-medium transition cursor-pointer ${
+                    typeFilter === t
+                      ? 'bg-emerald-500 text-neutral-950 font-bold border-emerald-400'
+                      : 'bg-neutral-800 border-neutral-700 text-neutral-300'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-neutral-800">
+            <label className="text-neutral-400 font-bold uppercase tracking-wider block mb-2 text-[10px]">
+              Display Density
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setDensity('detailed')}
+                className={`p-2.5 rounded-xl border text-center font-medium transition ${
+                  density === 'detailed' ? 'bg-emerald-500 text-neutral-950 font-bold' : 'bg-neutral-800 border-neutral-700 text-neutral-300'
+                }`}
+              >
+                Detailed
+              </button>
+              <button
+                onClick={() => setDensity('compact')}
+                className={`p-2.5 rounded-xl border text-center font-medium transition ${
+                  density === 'compact' ? 'bg-emerald-500 text-neutral-950 font-bold' : 'bg-neutral-800 border-neutral-700 text-neutral-300'
+                }`}
+              >
+                Compact
+              </button>
+            </div>
+          </div>
+        </div>
+      </MobileBottomSheet>
     </div>
   );
 };

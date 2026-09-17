@@ -1198,29 +1198,35 @@ export const NIFTY_50_ANCHORS: [string, number][] = [
   ['2026-09-01', 25300]
 ];
 
+const PARSED_NIFTY_50_ANCHORS = NIFTY_50_ANCHORS.map(([d, val]) => ({
+  time: new Date(`${d}T00:00:00Z`).getTime(),
+  val
+}));
+
 /**
- * Returns interpolated Nifty 50 index level for any given date
+ * Returns interpolated Nifty 50 index level for any given date or timestamp
  */
-export function getNifty50Level(date: Date): number {
-  const time = date.getTime();
-  const first = new Date(NIFTY_50_ANCHORS[0][0]).getTime();
-  const last = new Date(NIFTY_50_ANCHORS[NIFTY_50_ANCHORS.length - 1][0]).getTime();
+export function getNifty50Level(dateOrTime: Date | number): number {
+  const time = typeof dateOrTime === 'number' ? dateOrTime : dateOrTime.getTime();
+  const len = PARSED_NIFTY_50_ANCHORS.length;
 
-  if (time <= first) return NIFTY_50_ANCHORS[0][1];
-  if (time >= last) return NIFTY_50_ANCHORS[NIFTY_50_ANCHORS.length - 1][1];
+  if (time <= PARSED_NIFTY_50_ANCHORS[0].time) return PARSED_NIFTY_50_ANCHORS[0].val;
+  if (time >= PARSED_NIFTY_50_ANCHORS[len - 1].time) return PARSED_NIFTY_50_ANCHORS[len - 1].val;
 
-  for (let i = 0; i < NIFTY_50_ANCHORS.length - 1; i++) {
-    const t1 = new Date(NIFTY_50_ANCHORS[i][0]).getTime();
-    const t2 = new Date(NIFTY_50_ANCHORS[i + 1][0]).getTime();
-    if (time >= t1 && time <= t2) {
-      const fraction = (time - t1) / (t2 - t1);
-      const v1 = NIFTY_50_ANCHORS[i][1];
-      const v2 = NIFTY_50_ANCHORS[i + 1][1];
-      return v1 + fraction * (v2 - v1);
+  for (let i = 0; i < len - 1; i++) {
+    const a1 = PARSED_NIFTY_50_ANCHORS[i];
+    const a2 = PARSED_NIFTY_50_ANCHORS[i + 1];
+    if (time >= a1.time && time <= a2.time) {
+      if (a2.time === a1.time) return a1.val;
+      const fraction = (time - a1.time) / (a2.time - a1.time);
+      return a1.val + fraction * (a2.val - a1.val);
     }
   }
   return 25300;
 }
+
+// In-memory memoization cache for computed growth time series
+const portfolioGrowthCache = new Map<string, GrowthDataPoint[]>();
 
 /**
  * Computes realistic, physically exact historical portfolio growth time series
@@ -1232,6 +1238,11 @@ export function computeHistoricalPortfolioGrowth(
   summary: PortfolioSummary,
   timeframe: '1M' | '6M' | '1Y' | '3Y' | 'ALL'
 ): GrowthDataPoint[] {
+  const cacheKey = `${timeframe}_${transactions.length}_${summary.totalCurrentValue}_${summary.totalInvestedAmount}_${holdings.length}`;
+  const cached = portfolioGrowthCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
   const today = new Date();
   const todayTime = today.getTime();
 
@@ -1359,27 +1370,24 @@ export function computeHistoricalPortfolioGrowth(
     return currentNav;
   };
 
-  // 4. Generate sampling points between startTime and today
-  const pointsCount = timeframe === '1M' ? 30 : timeframe === '6M' ? 60 : timeframe === '1Y' ? 73 : timeframe === '3Y' ? 110 : 120;
+  // 4. Generate sampling points between startTime and today (30-75 points for fluid UI)
+  const pointsCount = timeframe === '1M' ? 30 : timeframe === '6M' ? 60 : timeframe === '1Y' ? 70 : 75;
   const stepMs = (todayTime - startTime) / pointsCount;
 
   const points: GrowthDataPoint[] = [];
+  const schemeUnitsMap = new Map<string, { units: number; invested: number }>();
+  let cumulativeNiftyUnits = 0;
+  let txIdx = 0;
 
   for (let i = 0; i <= pointsCount; i++) {
     const isTodayPoint = (i === pointsCount);
     const targetTime = isTodayPoint ? todayTime : startTime + i * stepMs;
     const targetDate = new Date(targetTime);
 
-    // Compute portfolio state at targetTime
-    // We iterate through all transactions that happened ON or BEFORE targetTime
-    let cumulativeInvested = 0;
-    let cumulativeNetWorth = 0;
-    let cumulativeNiftyUnits = 0;
-
-    const schemeUnitsMap = new Map<string, { units: number; invested: number }>();
-
-    for (const tx of effectiveTxs) {
-      if (tx.dateTime > targetTime) continue;
+    // Incrementally process transactions up to targetTime (O(N) across all points)
+    while (txIdx < effectiveTxs.length && effectiveTxs[txIdx].dateTime <= targetTime) {
+      const tx = effectiveTxs[txIdx];
+      txIdx++;
 
       const txTypeUpper = (tx.type || '').toUpperCase();
       const isRedemption = 
@@ -1391,12 +1399,13 @@ export function computeHistoricalPortfolioGrowth(
 
       const txUnits = Math.abs(tx.units || 0);
       const txAmount = Math.abs(tx.amount || 0);
-      const niftyAtTx = getNifty50Level(new Date(tx.dateTime));
+      const niftyAtTx = getNifty50Level(tx.dateTime);
 
-      if (!schemeUnitsMap.has(tx.schemeCode)) {
-        schemeUnitsMap.set(tx.schemeCode, { units: 0, invested: 0 });
+      let entry = schemeUnitsMap.get(tx.schemeCode);
+      if (!entry) {
+        entry = { units: 0, invested: 0 };
+        schemeUnitsMap.set(tx.schemeCode, entry);
       }
-      const entry = schemeUnitsMap.get(tx.schemeCode)!;
 
       if (isRedemption) {
         if (entry.units > 0) {
@@ -1408,16 +1417,13 @@ export function computeHistoricalPortfolioGrowth(
           entry.units = Math.max(0, entry.units - txUnits);
         }
 
-        // Deduct Nifty units equivalent to redemption amount
         if (niftyAtTx > 0) {
           cumulativeNiftyUnits = Math.max(0, cumulativeNiftyUnits - (txAmount / niftyAtTx));
         }
       } else {
-        // Purchase (SIP / LUMPSUM / SWITCH_IN)
         entry.units += txUnits;
         entry.invested += txAmount;
 
-        // Accumulate Nifty units bought on that date
         if (niftyAtTx > 0) {
           cumulativeNiftyUnits += (txAmount / niftyAtTx);
         }
@@ -1425,6 +1431,9 @@ export function computeHistoricalPortfolioGrowth(
     }
 
     // Sum invested and compute net worth from active units
+    let cumulativeInvested = 0;
+    let cumulativeNetWorth = 0;
+
     schemeUnitsMap.forEach((entry, code) => {
       cumulativeInvested += entry.invested;
       if (entry.units > 0.0001) {
@@ -1433,7 +1442,7 @@ export function computeHistoricalPortfolioGrowth(
       }
     });
 
-    const currentNiftyIndex = getNifty50Level(targetDate);
+    const currentNiftyIndex = getNifty50Level(targetTime);
     const cumulativeNiftyValue = cumulativeNiftyUnits * currentNiftyIndex;
 
     // Format display date
@@ -1450,7 +1459,6 @@ export function computeHistoricalPortfolioGrowth(
     });
 
     if (isTodayPoint) {
-      // Ensure the final point matches summary exact totals
       points.push({
         x: i,
         date: dateFormatted,
@@ -1470,6 +1478,11 @@ export function computeHistoricalPortfolioGrowth(
       });
     }
   }
+
+  if (portfolioGrowthCache.size > 20) {
+    portfolioGrowthCache.clear();
+  }
+  portfolioGrowthCache.set(cacheKey, points);
 
   return points;
 }

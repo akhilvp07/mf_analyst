@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Search, 
   ArrowUpDown, 
@@ -6,10 +6,15 @@ import {
   TrendingDown, 
   RefreshCw, 
   Layers,
-  ChevronRight
+  ChevronRight,
+  SlidersHorizontal,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 import { PortfolioHolding } from '../types';
 import { formatINR } from '../utils/financialCalculations';
+import { MobileBottomSheet } from './MobileBottomSheet';
+import { PrivacyValue } from '../context/PrivacyContext';
 
 interface HoldingsTableProps {
   holdings: PortfolioHolding[];
@@ -18,6 +23,8 @@ interface HoldingsTableProps {
 }
 
 type SortField = 'currentValue' | 'totalGain' | 'totalGainPercentage' | 'dayGain' | 'xirr' | 'schemeName' | 'allocationPercentage';
+
+const STORAGE_KEY_HOLDINGS_DENSITY = 'mftracker_holdings_density_v1';
 
 export const HoldingsTable: React.FC<HoldingsTableProps> = ({
   holdings,
@@ -29,6 +36,20 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
   const [sortField, setSortField] = useState<SortField>('currentValue');
   const [sortAsc, setSortAsc] = useState(false);
   const [syncingCode, setSyncingCode] = useState<string | null>(null);
+  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+  const [density, setDensity] = useState<'compact' | 'detailed'>(() => {
+    try {
+      return (localStorage.getItem(STORAGE_KEY_HOLDINGS_DENSITY) as 'compact' | 'detailed') || 'detailed';
+    } catch {
+      return 'detailed';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_HOLDINGS_DENSITY, density);
+    } catch {}
+  }, [density]);
 
   // Extract unique categories
   const categories = useMemo(() => {
@@ -97,22 +118,54 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
           />
         </div>
 
-        {/* Category Pills */}
+        {/* Toolbar Controls */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 touch-pan-x no-scrollbar">
-          <div className="flex items-center gap-1 bg-neutral-800/80 p-1 rounded-xl border border-neutral-700 text-xs shrink-0">
+          {/* Mobile Filter Sheet Trigger */}
+          <button
+            onClick={() => setIsMobileFilterOpen(true)}
+            className="md:hidden px-3 py-2 text-xs font-medium rounded-xl bg-neutral-800 border border-neutral-700 text-neutral-200 flex items-center gap-1.5 min-h-[44px]"
+          >
+            <SlidersHorizontal className="w-4 h-4 text-emerald-400" />
+            <span>Category & Sort ({categoryFilter === 'ALL' ? 'All' : categoryFilter.replace('Equity - ', '')})</span>
+          </button>
+
+          {/* Category Pills (Desktop) */}
+          <div className="hidden md:flex items-center gap-1 bg-neutral-800/80 p-1 rounded-xl border border-neutral-700 text-xs shrink-0">
             {categories.map((cat) => (
               <button
                 key={cat}
                 onClick={() => setCategoryFilter(cat)}
-                className={`px-3 py-2 md:py-1.5 rounded-lg whitespace-nowrap transition cursor-pointer font-medium min-h-[36px] md:min-h-[32px] flex items-center ${
+                className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition cursor-pointer font-medium text-xs flex items-center ${
                   categoryFilter === cat
-                    ? 'bg-neutral-700 text-white shadow-sm'
+                    ? 'bg-neutral-700 text-white shadow-sm font-semibold'
                     : 'text-neutral-400 hover:text-neutral-200'
                 }`}
               >
                 {cat === 'ALL' ? 'All Categories' : cat.replace('Equity - ', '')}
               </button>
             ))}
+          </div>
+
+          {/* Density Switcher */}
+          <div className="hidden sm:flex items-center gap-0.5 bg-neutral-800/80 p-1 rounded-xl border border-neutral-700 text-xs shrink-0">
+            <button
+              onClick={() => setDensity('detailed')}
+              className={`p-1.5 rounded-lg transition cursor-pointer ${
+                density === 'detailed' ? 'bg-neutral-700 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'
+              }`}
+              title="Detailed view"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setDensity('compact')}
+              className={`p-1.5 rounded-lg transition cursor-pointer ${
+                density === 'compact' ? 'bg-neutral-700 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'
+              }`}
+              title="Compact view"
+            >
+              <List className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       </div>
@@ -149,7 +202,6 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
         ) : (
           filteredHoldings.map((holding) => {
             const isProfit = holding.totalGain >= 0;
-            const isDayUp = holding.navChange1D >= 0;
             const isSyncing = syncingCode === holding.schemeCode;
             const plan = holding.planType || 'Direct';
             const option = holding.optionType || 'Growth';
@@ -158,7 +210,9 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
               <div
                 key={`mobile_${holding.schemeCode}_${holding.folioNumber}`}
                 onClick={() => onViewTransactions(holding.schemeCode)}
-                className="bg-neutral-900 border border-neutral-800 hover:border-neutral-700 active:bg-neutral-800/60 rounded-2xl p-4 shadow-sm space-y-3 transition cursor-pointer"
+                className={`bg-neutral-900 border border-neutral-800 hover:border-neutral-700 active:bg-neutral-800/60 rounded-2xl shadow-sm transition cursor-pointer ${
+                  density === 'compact' ? 'p-3 space-y-2' : 'p-4 space-y-3'
+                }`}
               >
                 {/* Header: Scheme Name & Plan */}
                 <div className="flex items-start justify-between gap-2">
@@ -207,10 +261,10 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                   <div>
                     <span className="text-[10px] uppercase font-bold text-neutral-500 block">Current Value</span>
                     <div className="font-bold text-white font-mono text-base mt-0.5">
-                      {formatINR(holding.currentValue)}
+                      <PrivacyValue value={formatINR(holding.currentValue)} />
                     </div>
                     <span className="text-[11px] text-neutral-400 block mt-0.5">
-                      Invested: {formatINR(holding.investedAmount, true)}
+                      Inv: <PrivacyValue value={formatINR(holding.investedAmount, true)} />
                     </span>
                   </div>
 
@@ -218,7 +272,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                     <span className="text-[10px] uppercase font-bold text-neutral-500 block">Returns & XIRR</span>
                     <div className={`font-bold font-mono text-sm mt-0.5 flex items-center justify-end ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {isProfit ? <TrendingUp className="w-3.5 h-3.5 mr-1" /> : <TrendingDown className="w-3.5 h-3.5 mr-1" />}
-                      {isProfit ? '+' : ''}{formatINR(holding.totalGain)} ({isProfit ? '+' : ''}{holding.totalGainPercentage.toFixed(1)}%)
+                      <PrivacyValue value={`${isProfit ? '+' : ''}${formatINR(holding.totalGain)} (${isProfit ? '+' : ''}${holding.totalGainPercentage.toFixed(1)}%)`} />
                     </div>
                     <div className="mt-1 flex items-center justify-end gap-1.5">
                       <span className="text-[10px] text-neutral-400">XIRR:</span>
@@ -319,6 +373,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                   const isSyncing = syncingCode === holding.schemeCode;
                   const plan = holding.planType || 'Direct';
                   const option = holding.optionType || 'Growth';
+                  const rowPy = density === 'compact' ? 'py-2' : 'py-3.5';
 
                   return (
                     <tr 
@@ -328,7 +383,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                       title="Click to view transactions in ledger"
                     >
                       {/* Scheme & Folio */}
-                      <td className="py-3.5 px-4">
+                      <td className={`${rowPy} px-4`}>
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-neutral-100 group-hover:text-emerald-400 transition text-sm">
                             {holding.schemeName}
@@ -359,14 +414,14 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                       </td>
 
                       {/* Category */}
-                      <td className="py-3.5 px-3 whitespace-nowrap">
+                      <td className={`${rowPy} px-3 whitespace-nowrap`}>
                         <span className="px-2.5 py-1 rounded-full text-[10px] font-medium bg-neutral-800 border border-neutral-700 text-neutral-300">
                           {holding.category}
                         </span>
                       </td>
 
                       {/* Units & Avg Buy NAV */}
-                      <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                      <td className={`${rowPy} px-3 text-right whitespace-nowrap`}>
                         <div className="font-mono font-medium text-neutral-200">
                           {holding.units.toFixed(3)} units
                         </div>
@@ -376,7 +431,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                       </td>
 
                       {/* Current Live NAV */}
-                      <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                      <td className={`${rowPy} px-3 text-right whitespace-nowrap`}>
                         <div className="font-mono font-bold text-neutral-100 flex items-center justify-end gap-1.5">
                           <span>₹{holding.currentNav >= 1000 ? holding.currentNav.toFixed(2) : Number.isInteger(holding.currentNav) ? holding.currentNav.toFixed(2) : holding.currentNav.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')}</span>
                           <button
@@ -404,19 +459,19 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                       </td>
 
                       {/* Current Value & Invested */}
-                      <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                      <td className={`${rowPy} px-3 text-right whitespace-nowrap`}>
                         <div className="font-bold text-white text-sm font-mono">
-                          {formatINR(holding.currentValue)}
+                          <PrivacyValue value={formatINR(holding.currentValue)} />
                         </div>
                         <div className="text-[11px] text-neutral-400">
-                          Inv: {formatINR(holding.investedAmount, true)}
+                          Inv: <PrivacyValue value={formatINR(holding.investedAmount, true)} />
                         </div>
                       </td>
 
                       {/* Total Profit / ROI */}
-                      <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                      <td className={`${rowPy} px-3 text-right whitespace-nowrap`}>
                         <div className={`font-bold font-mono ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {isProfit ? '+' : ''}{formatINR(holding.totalGain)}
+                          <PrivacyValue value={`${isProfit ? '+' : ''}${formatINR(holding.totalGain)}`} />
                         </div>
                         <div className={`text-[11px] font-semibold flex items-center justify-end ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
                           {isProfit ? <TrendingUp className="w-3 h-3 mr-0.5" /> : <TrendingDown className="w-3 h-3 mr-0.5" />}
@@ -425,14 +480,14 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                       </td>
 
                       {/* XIRR */}
-                      <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                      <td className={`${rowPy} px-3 text-right whitespace-nowrap`}>
                         <span className="px-2 py-0.5 rounded-md font-bold font-mono text-xs bg-teal-500/10 text-teal-300 border border-teal-500/20">
                           {holding.xirr > 0 ? `+${holding.xirr.toFixed(2)}%` : `${holding.xirr.toFixed(2)}%`}
                         </span>
                       </td>
 
                       {/* Allocation % */}
-                      <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                      <td className={`${rowPy} px-3 text-right whitespace-nowrap`}>
                         <div className="font-semibold text-neutral-300">
                           {holding.allocationPercentage.toFixed(1)}%
                         </div>
@@ -451,6 +506,64 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Mobile Bottom Sheet Modal */}
+      <MobileBottomSheet
+        isOpen={isMobileFilterOpen}
+        onClose={() => setIsMobileFilterOpen(false)}
+        title="Filter & Sort Holdings"
+        subtitle="Select category and display options"
+      >
+        <div className="space-y-4 text-xs">
+          <div>
+            <label className="text-neutral-400 font-bold uppercase tracking-wider block mb-2 text-[10px]">
+              Fund Category
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => {
+                    setCategoryFilter(cat);
+                    setIsMobileFilterOpen(false);
+                  }}
+                  className={`p-2.5 rounded-xl border text-left font-medium transition cursor-pointer truncate ${
+                    categoryFilter === cat
+                      ? 'bg-emerald-500 text-neutral-950 font-bold border-emerald-400'
+                      : 'bg-neutral-800 border-neutral-700 text-neutral-300'
+                  }`}
+                >
+                  {cat === 'ALL' ? 'All Categories' : cat.replace('Equity - ', '')}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-neutral-800">
+            <label className="text-neutral-400 font-bold uppercase tracking-wider block mb-2 text-[10px]">
+              Display Density
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setDensity('detailed')}
+                className={`p-2.5 rounded-xl border text-center font-medium transition ${
+                  density === 'detailed' ? 'bg-emerald-500 text-neutral-950 font-bold' : 'bg-neutral-800 border-neutral-700 text-neutral-300'
+                }`}
+              >
+                Detailed
+              </button>
+              <button
+                onClick={() => setDensity('compact')}
+                className={`p-2.5 rounded-xl border text-center font-medium transition ${
+                  density === 'compact' ? 'bg-emerald-500 text-neutral-950 font-bold' : 'bg-neutral-800 border-neutral-700 text-neutral-300'
+                }`}
+              >
+                Compact
+              </button>
+            </div>
+          </div>
+        </div>
+      </MobileBottomSheet>
     </div>
   );
 };
