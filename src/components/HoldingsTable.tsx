@@ -1,12 +1,10 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   TrendingUp, 
   TrendingDown, 
   RefreshCw, 
   Layers,
-  ChevronRight,
-  LayoutGrid,
-  List
+  ChevronRight
 } from 'lucide-react';
 import { PortfolioHolding } from '../types';
 import { formatINR, formatNavDateDisplay, formatNavDateShort } from '../utils/financialCalculations';
@@ -20,29 +18,12 @@ interface HoldingsTableProps {
   isSyncingNavs?: boolean;
 }
 
-const STORAGE_KEY_HOLDINGS_DENSITY = 'mftracker_holdings_density_v1';
-
 export const HoldingsTable: React.FC<HoldingsTableProps> = ({
   holdings,
   onViewTransactions,
-  onSyncSingleNav,
-  onSyncAllNavs,
-  isSyncingNavs = false
+  onSyncSingleNav
 }) => {
   const [syncingCode, setSyncingCode] = useState<string | null>(null);
-  const [density, setDensity] = useState<'compact' | 'detailed'>(() => {
-    try {
-      return (localStorage.getItem(STORAGE_KEY_HOLDINGS_DENSITY) as 'compact' | 'detailed') || 'detailed';
-    } catch {
-      return 'detailed';
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_HOLDINGS_DENSITY, density);
-    } catch {}
-  }, [density]);
 
   // Natural presentation: sorted by current value descending (standard portfolio order)
   const displayHoldings = useMemo(() => {
@@ -60,56 +41,6 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Action Toolbar (Streamlined without search, filter, or sort controls) */}
-      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl px-4 py-3 shadow-sm flex items-center justify-between gap-3">
-        {/* Left: Section Title & Holdings Count */}
-        <div className="flex items-center gap-2.5">
-          <span className="font-semibold text-sm text-neutral-100">Holdings</span>
-          <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-400">
-            {displayHoldings.length} {displayHoldings.length === 1 ? 'fund' : 'funds'}
-          </span>
-        </div>
-
-        {/* Right: Refresh All NAVs & Density Controls */}
-        <div className="flex items-center gap-2 shrink-0">
-          {onSyncAllNavs && (
-            <button
-              id="holdings-sync-all-navs-btn"
-              onClick={onSyncAllNavs}
-              disabled={isSyncingNavs}
-              title="Refresh NAV for all funds together from AMFI"
-              className="px-3.5 py-2 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white transition flex items-center gap-1.5 shadow-sm shadow-emerald-900/30 cursor-pointer disabled:opacity-50 min-h-[38px] shrink-0"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingNavs ? 'animate-spin' : ''}`} />
-              <span className="hidden xs:inline sm:inline">{isSyncingNavs ? 'Refreshing All...' : 'Refresh All NAVs'}</span>
-              <span className="xs:hidden sm:hidden">{isSyncingNavs ? '...' : 'Refresh All'}</span>
-            </button>
-          )}
-
-          {/* Density Switcher */}
-          <div className="hidden sm:flex items-center gap-0.5 bg-neutral-800/80 p-1 rounded-xl border border-neutral-700 text-xs shrink-0">
-            <button
-              onClick={() => setDensity('detailed')}
-              className={`p-1.5 rounded-lg transition cursor-pointer ${
-                density === 'detailed' ? 'bg-neutral-700 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'
-              }`}
-              title="Detailed view"
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => setDensity('compact')}
-              className={`p-1.5 rounded-lg transition cursor-pointer ${
-                density === 'compact' ? 'bg-neutral-700 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'
-              }`}
-              title="Compact view"
-            >
-              <List className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      </div>
-
       {/* Mobile Card List View (Visible on small screens < md) */}
       <div className="block md:hidden space-y-3">
         {displayHoldings.length === 0 ? (
@@ -129,9 +60,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
               <div
                 key={`mobile_${holding.schemeCode}_${holding.folioNumber}`}
                 onClick={() => onViewTransactions(holding.schemeCode)}
-                className={`bg-neutral-900 border border-neutral-800 hover:border-neutral-700 active:bg-neutral-800/60 rounded-2xl shadow-sm transition cursor-pointer ${
-                  density === 'compact' ? 'p-3 space-y-2' : 'p-4 space-y-3'
-                }`}
+                className="bg-neutral-900 border border-neutral-800 hover:border-neutral-700 active:bg-neutral-800/60 rounded-2xl shadow-sm transition cursor-pointer p-4 space-y-3"
               >
                 {/* Header: Scheme Name & Plan */}
                 <div className="flex items-start justify-between gap-2">
@@ -266,7 +195,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                   const isSyncing = syncingCode === holding.schemeCode;
                   const plan = holding.planType || 'Direct';
                   const option = holding.optionType || 'Growth';
-                  const rowPy = density === 'compact' ? 'py-2' : 'py-3.5';
+                  const rowPy = 'py-3';
 
                   return (
                     <tr 
