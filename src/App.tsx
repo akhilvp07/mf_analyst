@@ -23,7 +23,7 @@ import {
   persistPortfolioToIndexedDb 
 } from './services/indexedDbCache';
 import { syncSchemesForHoldings, SchemeSyncTarget } from './services/mfApi';
-import { computePortfolioHoldings, mergeTransactions } from './utils/financialCalculations';
+import { computePortfolioHoldings, mergeTransactions, formatNavDateDisplay } from './utils/financialCalculations';
 import { loadAmfiNavDatabase } from './services/amfiNavService';
 
 export default function App() {
@@ -265,9 +265,10 @@ export default function App() {
       }
 
       const syncedObj = Object.values(updatedSchemes)[0];
+      const navDateFormatted = syncedObj?.navDate ? formatNavDateDisplay(syncedObj.navDate) : 'Live';
       setSyncToast({
         message: syncedObj?.currentNav 
-          ? `Updated NAV for ${syncedObj.schemeName}: ₹${syncedObj.currentNav.toFixed(2)} (${syncedObj.navDate || 'Live'})`
+          ? `Updated NAV for ${syncedObj.schemeName}: ₹${syncedObj.currentNav.toFixed(2)} (${navDateFormatted})`
           : `NAV refreshed successfully.`,
         type: 'success'
       });
@@ -375,6 +376,8 @@ export default function App() {
                 holdings={holdings}
                 onViewTransactions={handleViewSchemeLedger}
                 onSyncSingleNav={handleSyncSingleNav}
+                onSyncAllNavs={handleSyncAllNavs}
+                isSyncingNavs={isSyncingNavs}
               />
             </div>
           )}

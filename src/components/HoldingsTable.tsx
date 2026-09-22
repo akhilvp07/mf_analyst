@@ -1,42 +1,35 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  Search, 
-  ArrowUpDown, 
   TrendingUp, 
   TrendingDown, 
   RefreshCw, 
   Layers,
   ChevronRight,
-  SlidersHorizontal,
   LayoutGrid,
   List
 } from 'lucide-react';
 import { PortfolioHolding } from '../types';
-import { formatINR } from '../utils/financialCalculations';
-import { MobileBottomSheet } from './MobileBottomSheet';
+import { formatINR, formatNavDateDisplay, formatNavDateShort } from '../utils/financialCalculations';
 import { PrivacyValue } from '../context/PrivacyContext';
 
 interface HoldingsTableProps {
   holdings: PortfolioHolding[];
   onViewTransactions: (schemeCode: string) => void;
   onSyncSingleNav: (schemeCode: string, schemeName?: string, isin?: string) => Promise<any> | void;
+  onSyncAllNavs?: () => void;
+  isSyncingNavs?: boolean;
 }
-
-type SortField = 'currentValue' | 'totalGain' | 'totalGainPercentage' | 'dayGain' | 'xirr' | 'schemeName' | 'allocationPercentage';
 
 const STORAGE_KEY_HOLDINGS_DENSITY = 'mftracker_holdings_density_v1';
 
 export const HoldingsTable: React.FC<HoldingsTableProps> = ({
   holdings,
   onViewTransactions,
-  onSyncSingleNav
+  onSyncSingleNav,
+  onSyncAllNavs,
+  isSyncingNavs = false
 }) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('ALL');
-  const [sortField, setSortField] = useState<SortField>('currentValue');
-  const [sortAsc, setSortAsc] = useState(false);
   const [syncingCode, setSyncingCode] = useState<string | null>(null);
-  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
   const [density, setDensity] = useState<'compact' | 'detailed'>(() => {
     try {
       return (localStorage.getItem(STORAGE_KEY_HOLDINGS_DENSITY) as 'compact' | 'detailed') || 'detailed';
@@ -51,46 +44,10 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
     } catch {}
   }, [density]);
 
-  // Extract unique categories
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    holdings.forEach(h => set.add(h.category));
-    return ['ALL', ...Array.from(set)];
+  // Natural presentation: sorted by current value descending (standard portfolio order)
+  const displayHoldings = useMemo(() => {
+    return [...holdings].sort((a, b) => b.currentValue - a.currentValue);
   }, [holdings]);
-
-  // Filter & Sort Holdings
-  const filteredHoldings = useMemo(() => {
-    return holdings
-      .filter(h => {
-        const matchesSearch = 
-          h.schemeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          h.fundHouse.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          h.folioNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (h.planType && h.planType.toLowerCase().includes(searchQuery.toLowerCase())) ||
-          (h.schemeCode && h.schemeCode.toLowerCase().includes(searchQuery.toLowerCase()));
-        
-        const matchesCat = categoryFilter === 'ALL' || h.category === categoryFilter;
-        return matchesSearch && matchesCat;
-      })
-      .sort((a, b) => {
-        let valA: any = a[sortField];
-        let valB: any = b[sortField];
-
-        if (typeof valA === 'string') {
-          return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
-        }
-        return sortAsc ? valA - valB : valB - valA;
-      });
-  }, [holdings, searchQuery, categoryFilter, sortField, sortAsc]);
-
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortAsc(!sortAsc);
-    } else {
-      setSortField(field);
-      setSortAsc(false);
-    }
-  };
 
   const handleSyncNav = async (schemeCode: string, schemeName?: string, isin?: string) => {
     setSyncingCode(schemeCode);
@@ -103,48 +60,31 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Search & Filter Toolbar */}
-      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-        {/* Search Input */}
-        <div className="relative w-full md:w-80">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
-          <input
-            id="holdings-search-input"
-            type="text"
-            placeholder="Search fund name, AMC, folio, or Direct/Regular..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 text-xs bg-neutral-800 border border-neutral-700 rounded-xl text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-emerald-500 transition min-h-[44px] md:min-h-[38px]"
-          />
+      {/* Action Toolbar (Streamlined without search, filter, or sort controls) */}
+      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl px-4 py-3 shadow-sm flex items-center justify-between gap-3">
+        {/* Left: Section Title & Holdings Count */}
+        <div className="flex items-center gap-2.5">
+          <span className="font-semibold text-sm text-neutral-100">Holdings</span>
+          <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-400">
+            {displayHoldings.length} {displayHoldings.length === 1 ? 'fund' : 'funds'}
+          </span>
         </div>
 
-        {/* Toolbar Controls */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 touch-pan-x no-scrollbar">
-          {/* Mobile Filter Sheet Trigger */}
-          <button
-            onClick={() => setIsMobileFilterOpen(true)}
-            className="md:hidden px-3 py-2 text-xs font-medium rounded-xl bg-neutral-800 border border-neutral-700 text-neutral-200 flex items-center gap-1.5 min-h-[44px]"
-          >
-            <SlidersHorizontal className="w-4 h-4 text-emerald-400" />
-            <span>Category & Sort ({categoryFilter === 'ALL' ? 'All' : categoryFilter.replace('Equity - ', '')})</span>
-          </button>
-
-          {/* Category Pills (Desktop) */}
-          <div className="hidden md:flex items-center gap-1 bg-neutral-800/80 p-1 rounded-xl border border-neutral-700 text-xs shrink-0">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setCategoryFilter(cat)}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition cursor-pointer font-medium text-xs flex items-center ${
-                  categoryFilter === cat
-                    ? 'bg-neutral-700 text-white shadow-sm font-semibold'
-                    : 'text-neutral-400 hover:text-neutral-200'
-                }`}
-              >
-                {cat === 'ALL' ? 'All Categories' : cat.replace('Equity - ', '')}
-              </button>
-            ))}
-          </div>
+        {/* Right: Refresh All NAVs & Density Controls */}
+        <div className="flex items-center gap-2 shrink-0">
+          {onSyncAllNavs && (
+            <button
+              id="holdings-sync-all-navs-btn"
+              onClick={onSyncAllNavs}
+              disabled={isSyncingNavs}
+              title="Refresh NAV for all funds together from AMFI"
+              className="px-3.5 py-2 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white transition flex items-center gap-1.5 shadow-sm shadow-emerald-900/30 cursor-pointer disabled:opacity-50 min-h-[38px] shrink-0"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingNavs ? 'animate-spin' : ''}`} />
+              <span className="hidden xs:inline sm:inline">{isSyncingNavs ? 'Refreshing All...' : 'Refresh All NAVs'}</span>
+              <span className="xs:hidden sm:hidden">{isSyncingNavs ? '...' : 'Refresh All'}</span>
+            </button>
+          )}
 
           {/* Density Switcher */}
           <div className="hidden sm:flex items-center gap-0.5 bg-neutral-800/80 p-1 rounded-xl border border-neutral-700 text-xs shrink-0">
@@ -170,37 +110,16 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
         </div>
       </div>
 
-      {/* Mobile Sort Bar (Visible on small screens) */}
-      <div className="flex md:hidden items-center justify-between bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-2.5 text-xs text-neutral-400">
-        <span className="font-medium">Sort by:</span>
-        <div className="flex items-center gap-1">
-          {(['currentValue', 'totalGain', 'xirr'] as SortField[]).map((field) => (
-            <button
-              key={field}
-              onClick={() => handleSort(field)}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
-                sortField === field 
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
-                  : 'bg-neutral-800 text-neutral-400'
-              }`}
-            >
-              <span>{field === 'currentValue' ? 'Value' : field === 'totalGain' ? 'Gain' : 'XIRR'}</span>
-              {sortField === field && <ArrowUpDown className="w-3 h-3" />}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Mobile Card List View (Visible on small screens < md) */}
       <div className="block md:hidden space-y-3">
-        {filteredHoldings.length === 0 ? (
+        {displayHoldings.length === 0 ? (
           <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-8 text-center text-neutral-400">
             <Layers className="w-8 h-8 mx-auto text-neutral-600 mb-2" />
             <p className="font-semibold text-neutral-300">No mutual fund holdings found</p>
-            <p className="text-xs text-neutral-500 mt-1">Try resetting your search filters or import a CAS statement.</p>
+            <p className="text-xs text-neutral-500 mt-1">Import a CAS statement or add transactions to view holdings.</p>
           </div>
         ) : (
-          filteredHoldings.map((holding) => {
+          displayHoldings.map((holding) => {
             const isProfit = holding.totalGain >= 0;
             const isSyncing = syncingCode === holding.schemeCode;
             const plan = holding.planType || 'Direct';
@@ -237,19 +156,33 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                   <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0 mt-1" />
                 </div>
 
-                {/* Folio & AMC Info */}
-                <div className="flex items-center justify-between text-[11px] text-neutral-400 bg-neutral-950/60 px-3 py-1.5 rounded-xl border border-neutral-800/70">
-                  <span className="truncate">Folio: <strong className="font-mono text-neutral-300">{holding.folioNumber}</strong></span>
+                {/* Folio, NAV & NAV Date Info */}
+                <div className="flex items-center justify-between text-[11px] text-neutral-400 bg-neutral-950/60 px-3 py-2 rounded-xl border border-neutral-800/70">
+                  <div className="flex flex-col min-w-0 pr-2">
+                    <span className="truncate">Folio: <strong className="font-mono text-neutral-300">{holding.folioNumber}</strong></span>
+                    {holding.navDate && (
+                      <span className="text-[10px] text-neutral-500 font-mono mt-0.5">
+                        NAV as of: <span className="text-neutral-300 font-medium">{formatNavDateShort(holding.navDate)}</span>
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="font-mono text-neutral-300">NAV: ₹{holding.currentNav.toFixed(2)}</span>
+                    <div className="text-right">
+                      <div className="font-mono font-semibold text-neutral-200">₹{holding.currentNav.toFixed(2)}</div>
+                      {holding.navChange1D !== undefined && holding.navChange1D !== 0 && (
+                        <div className={`text-[10px] font-mono flex items-center justify-end gap-0.5 ${(holding.navChange1D || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {(holding.navChange1D || 0) >= 0 ? '+' : ''}{holding.navChange1D.toFixed(2)}%
+                        </div>
+                      )}
+                    </div>
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleSyncNav(holding.schemeCode, holding.schemeName, holding.isin);
                       }}
-                      className="p-1 text-neutral-400 hover:text-emerald-400 min-w-[32px] min-h-[32px] flex items-center justify-center cursor-pointer"
-                      title="Sync live NAV"
+                      className="p-1.5 text-neutral-400 hover:text-emerald-400 rounded-lg hover:bg-neutral-800 transition min-w-[32px] min-h-[32px] flex items-center justify-center cursor-pointer"
+                      title={`Sync live NAV (Current: as of ${holding.navDate ? formatNavDateDisplay(holding.navDate) : 'Live'})`}
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-emerald-400' : ''}`} />
                     </button>
@@ -306,68 +239,28 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-neutral-800/70 border-b border-neutral-800 text-neutral-400 font-semibold uppercase tracking-wider">
-                <th 
-                  className="py-3.5 px-4 cursor-pointer hover:text-white transition"
-                  onClick={() => handleSort('schemeName')}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <span>Scheme, Plan & Folio</span>
-                    <ArrowUpDown className="w-3 h-3" />
-                  </div>
-                </th>
+              <tr className="bg-neutral-800/70 border-b border-neutral-800 text-neutral-400 font-semibold uppercase tracking-wider text-[11px]">
+                <th className="py-3.5 px-4">Scheme, Plan & Folio</th>
                 <th className="py-3.5 px-3">Category</th>
                 <th className="py-3.5 px-3 text-right">Units & Avg NAV</th>
                 <th className="py-3.5 px-3 text-right">Current NAV</th>
-                <th 
-                  className="py-3.5 px-3 text-right cursor-pointer hover:text-white transition"
-                  onClick={() => handleSort('currentValue')}
-                >
-                  <div className="flex items-center justify-end gap-1.5">
-                    <span>Current Value</span>
-                    <ArrowUpDown className="w-3 h-3" />
-                  </div>
-                </th>
-                <th 
-                  className="py-3.5 px-3 text-right cursor-pointer hover:text-white transition"
-                  onClick={() => handleSort('totalGain')}
-                >
-                  <div className="flex items-center justify-end gap-1.5">
-                    <span>Total Gain / ROI</span>
-                    <ArrowUpDown className="w-3 h-3" />
-                  </div>
-                </th>
-                <th 
-                  className="py-3.5 px-3 text-right cursor-pointer hover:text-white transition"
-                  onClick={() => handleSort('xirr')}
-                >
-                  <div className="flex items-center justify-end gap-1.5">
-                    <span>XIRR</span>
-                    <ArrowUpDown className="w-3 h-3" />
-                  </div>
-                </th>
-                <th 
-                  className="py-3.5 px-3 text-right cursor-pointer hover:text-white transition"
-                  onClick={() => handleSort('allocationPercentage')}
-                >
-                  <div className="flex items-center justify-end gap-1.5">
-                    <span>Allocation</span>
-                    <ArrowUpDown className="w-3 h-3" />
-                  </div>
-                </th>
+                <th className="py-3.5 px-3 text-right">Current Value</th>
+                <th className="py-3.5 px-3 text-right">Total Gain / ROI</th>
+                <th className="py-3.5 px-3 text-right">XIRR</th>
+                <th className="py-3.5 px-3 text-right">Allocation</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800/60 text-neutral-200">
-              {filteredHoldings.length === 0 ? (
+              {displayHoldings.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-neutral-400">
                     <Layers className="w-8 h-8 mx-auto text-neutral-600 mb-2" />
                     <p className="font-semibold text-neutral-300">No mutual fund holdings found</p>
-                    <p className="text-xs text-neutral-500 mt-1">Try resetting your search filters or import CAS statement.</p>
+                    <p className="text-xs text-neutral-500 mt-1">Import a CAS statement or add transactions to view holdings.</p>
                   </td>
                 </tr>
               ) : (
-                filteredHoldings.map((holding) => {
+                displayHoldings.map((holding) => {
                   const isProfit = holding.totalGain >= 0;
                   const isDayUp = holding.navChange1D >= 0;
                   const isSyncing = syncingCode === holding.schemeCode;
@@ -451,8 +344,8 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                             {isDayUp ? '+' : ''}{holding.navChange1D.toFixed(2)}% (1D)
                           </span>
                           {holding.navDate && (
-                            <span className="text-neutral-500 text-[10px]">
-                              • {new Date(holding.navDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                            <span className="text-neutral-500 text-[10px]" title={`NAV Date: ${formatNavDateDisplay(holding.navDate)}`}>
+                              • {formatNavDateShort(holding.navDate)}
                             </span>
                           )}
                         </div>
@@ -507,63 +400,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
         </div>
       </div>
 
-      {/* Mobile Bottom Sheet Modal */}
-      <MobileBottomSheet
-        isOpen={isMobileFilterOpen}
-        onClose={() => setIsMobileFilterOpen(false)}
-        title="Filter & Sort Holdings"
-        subtitle="Select category and display options"
-      >
-        <div className="space-y-4 text-xs">
-          <div>
-            <label className="text-neutral-400 font-bold uppercase tracking-wider block mb-2 text-[10px]">
-              Fund Category
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-              {categories.map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => {
-                    setCategoryFilter(cat);
-                    setIsMobileFilterOpen(false);
-                  }}
-                  className={`p-2.5 rounded-xl border text-left font-medium transition cursor-pointer truncate ${
-                    categoryFilter === cat
-                      ? 'bg-emerald-500 text-neutral-950 font-bold border-emerald-400'
-                      : 'bg-neutral-800 border-neutral-700 text-neutral-300'
-                  }`}
-                >
-                  {cat === 'ALL' ? 'All Categories' : cat.replace('Equity - ', '')}
-                </button>
-              ))}
-            </div>
-          </div>
 
-          <div className="pt-3 border-t border-neutral-800">
-            <label className="text-neutral-400 font-bold uppercase tracking-wider block mb-2 text-[10px]">
-              Display Density
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setDensity('detailed')}
-                className={`p-2.5 rounded-xl border text-center font-medium transition ${
-                  density === 'detailed' ? 'bg-emerald-500 text-neutral-950 font-bold' : 'bg-neutral-800 border-neutral-700 text-neutral-300'
-                }`}
-              >
-                Detailed
-              </button>
-              <button
-                onClick={() => setDensity('compact')}
-                className={`p-2.5 rounded-xl border text-center font-medium transition ${
-                  density === 'compact' ? 'bg-emerald-500 text-neutral-950 font-bold' : 'bg-neutral-800 border-neutral-700 text-neutral-300'
-                }`}
-              >
-                Compact
-              </button>
-            </div>
-          </div>
-        </div>
-      </MobileBottomSheet>
     </div>
   );
 };

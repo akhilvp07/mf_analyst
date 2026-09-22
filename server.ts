@@ -86,7 +86,8 @@ app.get('/api/health', (req, res) => {
 
 // 2. AMFI NAV proxy endpoint
 app.get(['/api/amfi-nav', '/api/amfi/navall'], async (req, res) => {
-  if (cachedAmfiText && Date.now() - lastAmfiFetchTime < 1000 * 60 * 60) {
+  const isForce = req.query.force === 'true' || req.headers['cache-control']?.includes('no-cache');
+  if (!isForce && cachedAmfiText && Date.now() - lastAmfiFetchTime < 1000 * 60 * 60) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 'public, max-age=3600');

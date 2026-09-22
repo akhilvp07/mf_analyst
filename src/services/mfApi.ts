@@ -1,6 +1,6 @@
 import { MutualFundScheme } from '../types';
 import { cleanFundDisplayName, detectPlanType, detectOptionType } from '../utils/financialCalculations';
-import { lookupAmfiByIsin, lookupAmfiBySchemeCode, loadAmfiNavDatabase } from './amfiNavService';
+import { lookupAmfiByIsin, lookupAmfiBySchemeCode, lookupAmfiBySchemeName, loadAmfiNavDatabase, AmfiNavRecord } from './amfiNavService';
 
 export interface MfApiSchemeDetail {
   meta: {
@@ -636,6 +636,115 @@ export function mapSchemeCategory(rawCat: string = '', schemeName: string = ''):
 }
 
 /**
+ * Merges official AMFI database records with MF API detail responses,
+ * strictly prioritizing the fresher NAV date so that newer AMFI data (e.g. 21st Sep)
+ * is NEVER overwritten by lagging MF API data (e.g. 18th Sep).
+ */
+export function mergeAmfiAndApiDetails(
+  amfiRec: AmfiNavRecord | null | undefined,
+  detail: MfApiSchemeDetail | null | undefined,
+  fallback: {
+    schemeCode: string;
+    schemeName: string;
+    fundHouse?: string;
+    category?: MutualFundScheme['category'];
+    planType?: 'Direct' | 'Regular';
+    optionType?: 'Growth' | 'IDCW';
+    currentNav?: number;
+    navDate?: string;
+    navChange1D?: number;
+    isin?: string;
+  }
+): {
+  schemeCode: string;
+  schemeName: string;
+  planType: 'Direct' | 'Regular';
+  optionType: 'Growth' | 'IDCW';
+  currentNav: number;
+  navDate: string;
+  navChange1D: number;
+  fundHouse: string;
+  category: MutualFundScheme['category'];
+  isin?: string;
+} {
+  const apiLatest = detail && detail.data && detail.data.length > 0 ? detail.data[0] : null;
+  const apiPrev = detail && detail.data && detail.data.length > 1 ? detail.data[1] : apiLatest;
+  const apiNav = apiLatest ? parseFloat(apiLatest.nav) : NaN;
+  const apiPrevNav = apiPrev ? parseFloat(apiPrev.nav) : NaN;
+  const apiDate = apiLatest?.date ? formatNavDateToIso(apiLatest.date) : '';
+  const amfiDate = amfiRec?.navDate || '';
+
+  // Determine if AMFI is fresher or equal
+  const isAmfiFresherOrEqual = !!(amfiRec && amfiDate && (!apiDate || amfiDate >= apiDate));
+
+  if (isAmfiFresherOrEqual && amfiRec) {
+    const cNav = amfiRec.currentNav > 0 ? amfiRec.currentNav : (!isNaN(apiNav) && apiNav > 0 ? apiNav : (fallback.currentNav || 85.0));
+    let change1D = 0;
+    if (!isNaN(apiNav) && apiNav > 0 && cNav > 0) {
+      if (apiDate && amfiDate > apiDate) {
+        // apiNav represents the previous trading day's closing NAV (e.g. 18-Sep close vs 21-Sep AMFI)
+        change1D = ((cNav - apiNav) / apiNav) * 100;
+      } else if (!isNaN(apiPrevNav) && apiPrevNav > 0) {
+        change1D = ((cNav - apiPrevNav) / apiPrevNav) * 100;
+      }
+    } else if (fallback.navChange1D !== undefined) {
+      change1D = fallback.navChange1D;
+    }
+
+    const schemeName = cleanFundDisplayName(amfiRec.schemeName || detail?.meta?.scheme_name || fallback.schemeName);
+    const fundHouse = amfiRec.fundHouse || detail?.meta?.fund_house || fallback.fundHouse || 'Mutual Fund';
+    const category = amfiRec.category || (detail?.meta?.scheme_category ? mapSchemeCategory(detail.meta.scheme_category, detail.meta.scheme_name) : (fallback.category || 'Equity - Flexi Cap'));
+
+    return {
+      schemeCode: amfiRec.schemeCode || fallback.schemeCode,
+      schemeName,
+      planType: amfiRec.planType || fallback.planType || 'Direct',
+      optionType: amfiRec.optionType || fallback.optionType || 'Growth',
+      currentNav: cNav,
+      navDate: amfiRec.navDate || fallback.navDate || '2026-09-21',
+      navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
+      fundHouse,
+      category,
+      isin: amfiRec.isin || fallback.isin || detail?.meta?.isin_growth || ''
+    };
+  }
+
+  if (apiLatest && !isNaN(apiNav) && apiNav > 0) {
+    const change1D = (!isNaN(apiPrevNav) && apiPrevNav > 0) ? ((apiNav - apiPrevNav) / apiPrevNav) * 100 : (fallback.navChange1D || 0);
+    const schemeName = cleanFundDisplayName(detail?.meta?.scheme_name || fallback.schemeName);
+    const fundHouse = detail?.meta?.fund_house || fallback.fundHouse || 'Mutual Fund';
+    const category = detail?.meta?.scheme_category ? mapSchemeCategory(detail.meta.scheme_category, detail.meta.scheme_name) : (fallback.category || 'Equity - Flexi Cap');
+
+    return {
+      schemeCode: String(detail?.meta?.scheme_code || '') || fallback.schemeCode,
+      schemeName,
+      planType: fallback.planType || 'Direct',
+      optionType: fallback.optionType || 'Growth',
+      currentNav: apiNav,
+      navDate: apiDate || fallback.navDate || '2026-09-18',
+      navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
+      fundHouse,
+      category,
+      isin: fallback.isin || detail?.meta?.isin_growth || ''
+    };
+  }
+
+  // Fallback to static/known scheme data
+  return {
+    schemeCode: fallback.schemeCode,
+    schemeName: cleanFundDisplayName(fallback.schemeName),
+    planType: fallback.planType || 'Direct',
+    optionType: fallback.optionType || 'Growth',
+    currentNav: fallback.currentNav || 85.0,
+    navDate: fallback.navDate || '2026-09-21',
+    navChange1D: fallback.navChange1D || 0,
+    fundHouse: fallback.fundHouse || 'Mutual Fund',
+    category: fallback.category || 'Equity - Flexi Cap',
+    isin: fallback.isin || ''
+  };
+}
+
+/**
  * Resolve real AMFI Scheme Code & live NAV from scheme name and ISIN with plan awareness
  */
 export async function resolveSchemeLiveDetails(
@@ -669,95 +778,48 @@ export async function resolveSchemeLiveDetails(
   // -------------------------------------------------------------
   if (isinUpper && isinUpper.length >= 10) {
     const amfiRec = lookupAmfiByIsin(isinUpper);
-    if (amfiRec) {
-      let cNav = amfiRec.currentNav;
-      let navDate = amfiRec.navDate;
-      let change1D = 0;
+    const knownIsin = KNOWN_ISIN_MAP[isinUpper];
+    const targetCode = amfiRec?.schemeCode || knownIsin?.schemeCode;
 
-      // Also try fetching from MF API for 1D historical change
-      try {
-        const detail = await fetchSchemeNavDetails(amfiRec.schemeCode, forceRefresh);
-        if (detail && detail.data && detail.data.length > 0) {
-          const latest = detail.data[0];
-          const prev = detail.data.length > 1 ? detail.data[1] : latest;
-          const apiNav = parseFloat(latest.nav);
-          const prevNav = parseFloat(prev.nav);
-          if (!isNaN(apiNav) && apiNav > 0) cNav = apiNav;
-          if (prevNav > 0 && cNav > 0) {
-            change1D = ((cNav - prevNav) / prevNav) * 100;
-          }
-          if (latest.date) {
-            navDate = formatNavDateToIso(latest.date);
-          }
-        }
-      } catch {
-        // AMFI record is already valid
+    if (amfiRec || targetCode) {
+      let detail: MfApiSchemeDetail | null = null;
+      if (targetCode) {
+        try {
+          detail = await fetchSchemeNavDetails(targetCode, forceRefresh);
+        } catch {}
       }
 
-      return {
-        schemeCode: amfiRec.schemeCode,
-        schemeName: amfiRec.schemeName,
-        planType: amfiRec.planType,
-        optionType: amfiRec.optionType,
-        currentNav: cNav > 0 ? cNav : (fallbackNav || 85.0),
-        navDate: navDate || new Date().toISOString().split('T')[0],
-        navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
-        fundHouse: amfiRec.fundHouse,
-        category: amfiRec.category,
+      return mergeAmfiAndApiDetails(amfiRec, detail, {
+        schemeCode: targetCode || amfiRec?.schemeCode || '',
+        schemeName: amfiRec?.schemeName || knownIsin?.schemeName || cleanName,
+        planType: detectedPlan,
+        optionType: detectedOption,
+        currentNav: fallbackNav,
         isin: isinUpper
-      };
-    }
-
-    // Check known ISIN catalog
-    if (KNOWN_ISIN_MAP[isinUpper]) {
-      const known = KNOWN_ISIN_MAP[isinUpper];
-      const detail = await fetchSchemeNavDetails(known.schemeCode, forceRefresh);
-      if (detail && detail.data && detail.data.length > 0) {
-        const latest = detail.data[0];
-        const prev = detail.data.length > 1 ? detail.data[1] : latest;
-        const cNav = parseFloat(latest.nav);
-        const pNav = parseFloat(prev.nav);
-        const change1D = pNav > 0 ? ((cNav - pNav) / pNav) * 100 : 0;
-
-        return {
-          schemeCode: known.schemeCode,
-          schemeName: cleanFundDisplayName(detail.meta.scheme_name || known.schemeName),
-          planType: known.planType,
-          optionType: known.optionType,
-          currentNav: isNaN(cNav) ? (fallbackNav || 85.0) : cNav,
-          navDate: formatNavDateToIso(latest.date),
-          navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
-          fundHouse: detail.meta.fund_house || known.fundHouse,
-          category: known.category,
-          isin: isinUpper
-        };
-      }
+      });
     }
 
     // Check KNOWN_SCHEMES_MAP by ISIN
     for (const [code, known] of Object.entries(KNOWN_SCHEMES_MAP)) {
       if (known.isin && known.isin.toUpperCase() === isinUpper) {
-        const detail = await fetchSchemeNavDetails(code, forceRefresh);
-        if (detail && detail.data && detail.data.length > 0) {
-          const latest = detail.data[0];
-          const prev = detail.data.length > 1 ? detail.data[1] : latest;
-          const cNav = parseFloat(latest.nav);
-          const pNav = parseFloat(prev.nav);
-          const change1D = pNav > 0 ? ((cNav - pNav) / pNav) * 100 : known.navChange1D;
+        const amfi = lookupAmfiBySchemeCode(code) || lookupAmfiByIsin(isinUpper);
+        let detail: MfApiSchemeDetail | null = null;
+        try {
+          detail = await fetchSchemeNavDetails(code, forceRefresh);
+        } catch {}
 
-          return {
-            schemeCode: code,
-            schemeName: cleanFundDisplayName(detail.meta.scheme_name || known.schemeName),
-            planType: known.planType,
-            optionType: known.optionType,
-            currentNav: isNaN(cNav) ? known.currentNav : cNav,
-            navDate: formatNavDateToIso(latest.date),
-            navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
-            fundHouse: detail.meta.fund_house || known.fundHouse,
-            category: known.category,
-            isin: isinUpper
-          };
-        }
+        return mergeAmfiAndApiDetails(amfi, detail, {
+          schemeCode: code,
+          schemeName: known.schemeName,
+          planType: known.planType,
+          optionType: known.optionType,
+          currentNav: known.currentNav,
+          navDate: known.navDate,
+          navChange1D: known.navChange1D,
+          fundHouse: known.fundHouse,
+          category: known.category,
+          isin: isinUpper
+        });
       }
     }
   }
@@ -1042,36 +1104,47 @@ export async function resolveSchemeLiveDetails(
       scoredCandidates.sort((a, b) => b.score - a.score);
       const bestMatch = scoredCandidates[0].res;
 
-      const detail = await fetchSchemeNavDetails(String(bestMatch.schemeCode), forceRefresh);
-      if (detail && detail.data && detail.data.length > 0) {
-        const latest = detail.data[0];
-        const prev = detail.data.length > 1 ? detail.data[1] : latest;
-        const cNav = parseFloat(latest.nav);
-        const pNav = parseFloat(prev.nav);
-        const change1D = pNav > 0 ? ((cNav - pNav) / pNav) * 100 : 0;
-        const fDate = formatNavDateToIso(latest.date);
-        const cat = mapSchemeCategory(detail.meta.scheme_category, detail.meta.scheme_name);
+      const bestMatchCode = String(bestMatch.schemeCode);
+      const amfi = lookupAmfiBySchemeCode(bestMatchCode) || lookupAmfiBySchemeName(cleanName, detectedPlan, detectedOption);
+      let detail: MfApiSchemeDetail | null = null;
+      try {
+        detail = await fetchSchemeNavDetails(bestMatchCode, forceRefresh);
+      } catch {}
 
-        return {
-          schemeCode: `${bestMatch.schemeCode}`,
-          schemeName: cleanFundDisplayName(detail.meta.scheme_name || cleanName),
-          planType: detectedPlan,
-          optionType: detectedOption,
-          currentNav: isNaN(cNav) ? (fallbackNav || 85.0) : cNav,
-          navDate: fDate,
-          navChange1D: Math.round(change1D * 100) / 100,
-          fundHouse: detail.meta.fund_house || 'Mutual Fund',
-          category: cat,
-          isin: isinUpper || detail.meta.isin_growth
-        };
-      }
+      return mergeAmfiAndApiDetails(amfi, detail, {
+        schemeCode: bestMatchCode,
+        schemeName: cleanFundDisplayName(bestMatch.schemeName || cleanName),
+        planType: detectedPlan,
+        optionType: detectedOption,
+        currentNav: fallbackNav,
+        isin: isinUpper
+      });
     }
   } catch (err) {
     console.warn('[MF API] Error in resolveSchemeLiveDetails:', err);
   }
 
   // -------------------------------------------------------------
-  // STEP 4: Fallback Synthetic Scheme
+  // STEP 4: AMFI Official Database Scheme Name Lookup
+  // -------------------------------------------------------------
+  const amfiByName = lookupAmfiBySchemeName(cleanName, detectedPlan, detectedOption);
+  if (amfiByName) {
+    return {
+      schemeCode: amfiByName.schemeCode,
+      schemeName: cleanFundDisplayName(amfiByName.schemeName),
+      planType: amfiByName.planType,
+      optionType: amfiByName.optionType,
+      currentNav: amfiByName.currentNav || (fallbackNav && fallbackNav > 0 ? fallbackNav : 85.0),
+      navDate: amfiByName.navDate || '2026-09-21',
+      navChange1D: 0,
+      fundHouse: amfiByName.fundHouse,
+      category: amfiByName.category,
+      isin: isinUpper || amfiByName.isin
+    };
+  }
+
+  // -------------------------------------------------------------
+  // STEP 5: Fallback Synthetic Scheme
   // -------------------------------------------------------------
   let hash = 0;
   for (let i = 0; i < cleanName.length; i++) {
@@ -1162,57 +1235,52 @@ export async function syncSchemesForHoldings(
 
     const isNumericCode = /^\d{5,7}$/.test(rawCode);
 
+    // Look up AMFI database by ISIN, scheme code, or scheme name
+    const amfi = (isinUpper && isinUpper.length >= 10 ? lookupAmfiByIsin(isinUpper) : null) ||
+                 (isNumericCode ? lookupAmfiBySchemeCode(rawCode) : null) ||
+                 lookupAmfiBySchemeName(cleanName, planType, optionType);
+
+    if (amfi) {
+      if (rawCode && rawCode !== amfi.schemeCode && isNumericCode) {
+        codeMigrations[rawCode] = amfi.schemeCode;
+      }
+      rawCode = amfi.schemeCode;
+    }
+
+    const isNowNumericCode = /^\d{5,7}$/.test(rawCode);
+
     try {
       let resolvedScheme: MutualFundScheme | null = null;
 
       // Scenario A: Valid 5-7 digit AMFI scheme code
-      if (isNumericCode) {
+      if (isNowNumericCode) {
         const known = KNOWN_SCHEMES_MAP[rawCode];
-        const detail = await fetchSchemeNavDetails(rawCode, options.forceRefresh ?? true);
-        if (detail && detail.data && detail.data.length > 0) {
-          const latest = detail.data[0];
-          const prev = detail.data.length > 1 ? detail.data[1] : latest;
-          const currentNav = parseFloat(latest.nav);
-          const prevNav = parseFloat(prev.nav);
-          const navChange1D = prevNav > 0 ? ((currentNav - prevNav) / prevNav) * 100 : (known?.navChange1D ?? 0);
-          const navDate = formatNavDateToIso(latest.date);
-          const category = mapSchemeCategory(detail.meta.scheme_category, detail.meta.scheme_name);
-          const finalName = cleanFundDisplayName(detail.meta.scheme_name || cleanName || 'Mutual Fund');
+        let detail: MfApiSchemeDetail | null = null;
+        try {
+          detail = await fetchSchemeNavDetails(rawCode, options.forceRefresh ?? true);
+        } catch {}
 
-          resolvedScheme = {
-            schemeCode: rawCode,
-            schemeName: finalName,
-            fundHouse: detail.meta.fund_house || known?.fundHouse || 'Mutual Fund',
-            category: known?.category || category,
-            planType: known?.planType || planType,
-            optionType: known?.optionType || optionType,
-            currentNav: isNaN(currentNav) ? (known?.currentNav ?? 100) : currentNav,
-            navDate: navDate || known?.navDate || '2026-08-28',
-            navChange1D: isNaN(navChange1D) ? 0 : Math.round(navChange1D * 100) / 100,
-            cagr3Y: 18.0,
-            cagr5Y: 20.0,
-            aumCr: 15000,
-            expenseRatio: 0.65,
-            isin: target.isin || detail.meta.isin_growth || known?.isin || ''
-          };
-        } else if (known) {
-          resolvedScheme = {
-            schemeCode: known.schemeCode,
-            schemeName: cleanFundDisplayName(known.schemeName),
-            fundHouse: known.fundHouse,
-            category: known.category,
-            planType: known.planType,
-            optionType: known.optionType,
-            currentNav: known.currentNav,
-            navDate: known.navDate,
-            navChange1D: known.navChange1D,
-            cagr3Y: 18.0,
-            cagr5Y: 20.0,
-            aumCr: 15000,
-            expenseRatio: known.planType === 'Direct' ? 0.65 : 1.35,
-            isin: known.isin || ''
-          };
-        }
+        const merged = mergeAmfiAndApiDetails(amfi, detail, {
+          schemeCode: rawCode,
+          schemeName: cleanName,
+          fundHouse: known?.fundHouse,
+          category: known?.category,
+          planType: known?.planType || planType,
+          optionType: known?.optionType || optionType,
+          currentNav: known?.currentNav,
+          navDate: known?.navDate,
+          navChange1D: known?.navChange1D,
+          isin: target.isin || known?.isin
+        });
+
+        resolvedScheme = {
+          ...merged,
+          cagr3Y: 18.0,
+          cagr5Y: 20.0,
+          aumCr: 15000,
+          expenseRatio: merged.planType === 'Direct' ? 0.65 : 1.35,
+          isin: merged.isin || target.isin || ''
+        };
       }
 
       // Scenario B: Non-numeric code or failed numeric -> resolve by scheme name + plan

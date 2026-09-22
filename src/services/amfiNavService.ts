@@ -966,8 +966,8 @@ export async function loadAmfiNavDatabase(
     return { isinMap: cachedIsinMap, codeMap: cachedCodeMap! };
   }
 
-  // If a fetch is already in progress, await that promise
-  if (isFetchingAmfiNav && fetchPromise) {
+  // If a fetch is already in progress and this isn't a forced refresh, await that promise
+  if (!forceRefresh && isFetchingAmfiNav && fetchPromise) {
     return fetchPromise;
   }
 
@@ -997,8 +997,8 @@ export async function loadAmfiNavDatabase(
       // Priority B: Direct AMFI portal URL
       // Priority C: CORS proxy fallback
       const candidateUrls = [
-        '/api/amfi-nav',
-        '/api/amfi/navall',
+        forceRefresh ? '/api/amfi-nav?force=true' : '/api/amfi-nav',
+        forceRefresh ? '/api/amfi/navall?force=true' : '/api/amfi/navall',
         AMFI_NAV_URL,
         `https://api.allorigins.win/raw?url=${encodeURIComponent(AMFI_NAV_URL)}`
       ];
@@ -1008,12 +1008,13 @@ export async function loadAmfiNavDatabase(
         try {
           const res = await fetch(url, {
             headers: {
-              'Accept': 'text/plain, */*'
+              'Accept': 'text/plain, */*',
+              ...(forceRefresh ? { 'Cache-Control': 'no-cache' } : {})
             }
           });
           if (res.ok) {
             const text = await res.text();
-            if (text && text.includes(';') && (text.includes('120503') || text.includes('INF846K01EW2') || text.includes('Scheme Code'))) {
+            if (text && text.includes(';') && (text.includes('120503') || text.includes('INF846K01EW2') || text.includes('Scheme Code') || text.includes('122639'))) {
               rawText = text;
               break;
             }

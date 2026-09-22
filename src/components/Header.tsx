@@ -125,11 +125,11 @@ export const Header: React.FC<HeaderProps> = ({
               id="sync-nav-btn"
               onClick={onSyncNavs}
               disabled={isSyncingNavs}
-              title="Sync live NAVs from AMFI"
+              title="Refresh NAV for all funds together from AMFI"
               className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow-sm shadow-emerald-900/30 cursor-pointer disabled:opacity-50 min-h-[36px]"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncingNavs ? 'animate-spin' : ''}`} />
-              <span>{isSyncingNavs ? 'Syncing...' : 'Sync NAVs'}</span>
+              <span>{isSyncingNavs ? 'Refreshing...' : 'Refresh All NAVs'}</span>
             </button>
           </div>
         </div>

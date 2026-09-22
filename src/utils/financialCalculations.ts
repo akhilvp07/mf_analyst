@@ -87,6 +87,41 @@ export function parseDateToTimestamp(dateInput: string | number | Date | undefin
 }
 
 /**
+ * Format NAV date string into clean user-facing format (e.g. "21 Sep 2026")
+ */
+export function formatNavDateDisplay(dateInput?: string | Date): string {
+  if (!dateInput) return 'Live';
+  const str = typeof dateInput === 'string' ? dateInput.trim() : '';
+  const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const year = isoMatch[1];
+    const month = months[parseInt(isoMatch[2], 10) - 1] || isoMatch[2];
+    const day = parseInt(isoMatch[3], 10);
+    return `${day} ${month} ${year}`;
+  }
+  const d = parseDateSafe(dateInput);
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/**
+ * Short NAV date format (e.g. "21 Sep")
+ */
+export function formatNavDateShort(dateInput?: string | Date): string {
+  if (!dateInput) return '';
+  const str = typeof dateInput === 'string' ? dateInput.trim() : '';
+  const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = months[parseInt(isoMatch[2], 10) - 1] || isoMatch[2];
+    const day = parseInt(isoMatch[3], 10);
+    return `${day} ${month}`;
+  }
+  const d = parseDateSafe(dateInput);
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+/**
  * High-precision XIRR calculation using Newton-Raphson method with adaptive damping and bisection fallback.
  * cashflows: array of { date: Date, amount: number }
  * (investments/purchases are negative, current value or redemption is positive)
