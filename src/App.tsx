@@ -374,6 +374,7 @@ export default function App() {
             <div className={activeTab === 'holdings' ? 'block' : 'hidden'}>
               <HoldingsTable
                 holdings={holdings}
+                transactions={transactions}
                 onViewTransactions={handleViewSchemeLedger}
                 onSyncSingleNav={handleSyncSingleNav}
                 onSyncAllNavs={handleSyncAllNavs}

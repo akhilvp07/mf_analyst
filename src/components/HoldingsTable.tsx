@@ -6,12 +6,14 @@ import {
   Layers,
   ChevronRight
 } from 'lucide-react';
-import { PortfolioHolding } from '../types';
+import { PortfolioHolding, TransactionRecord } from '../types';
 import { formatINR, formatNavDateDisplay, formatNavDateShort } from '../utils/financialCalculations';
 import { PrivacyValue } from '../context/PrivacyContext';
+import { HoldingDetailView } from './HoldingDetailView';
 
 interface HoldingsTableProps {
   holdings: PortfolioHolding[];
+  transactions?: TransactionRecord[];
   onViewTransactions: (schemeCode: string) => void;
   onSyncSingleNav: (schemeCode: string, schemeName?: string, isin?: string) => Promise<any> | void;
   onSyncAllNavs?: () => void;
@@ -20,15 +22,23 @@ interface HoldingsTableProps {
 
 export const HoldingsTable: React.FC<HoldingsTableProps> = ({
   holdings,
+  transactions = [],
   onViewTransactions,
   onSyncSingleNav
 }) => {
   const [syncingCode, setSyncingCode] = useState<string | null>(null);
+  const [selectedHoldingKey, setSelectedHoldingKey] = useState<string | null>(null);
 
   // Natural presentation: sorted by current value descending (standard portfolio order)
   const displayHoldings = useMemo(() => {
     return [...holdings].sort((a, b) => b.currentValue - a.currentValue);
   }, [holdings]);
+
+  // Active selected holding (reactive to live NAV updates)
+  const selectedHolding = useMemo(() => {
+    if (!selectedHoldingKey) return null;
+    return holdings.find(h => `${h.schemeCode}_${h.folioNumber}` === selectedHoldingKey) || null;
+  }, [holdings, selectedHoldingKey]);
 
   const handleSyncNav = async (schemeCode: string, schemeName?: string, isin?: string) => {
     setSyncingCode(schemeCode);
@@ -38,6 +48,19 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
       setTimeout(() => setSyncingCode(null), 600);
     }
   };
+
+  // If a holding is selected, render the full Holding Detail view
+  if (selectedHolding) {
+    return (
+      <HoldingDetailView
+        holding={selectedHolding}
+        transactions={transactions}
+        onBack={() => setSelectedHoldingKey(null)}
+        onViewTransactions={onViewTransactions}
+        onSyncSingleNav={onSyncSingleNav}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -51,15 +74,22 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
           </div>
         ) : (
           displayHoldings.map((holding) => {
-            const isProfit = holding.totalGain >= 0;
+            const isProfit = (holding.totalGain || 0) >= 0;
             const isSyncing = syncingCode === holding.schemeCode;
             const plan = holding.planType || 'Direct';
             const option = holding.optionType || 'Growth';
+            const navChange = Number.isFinite(holding.navChange1D) ? holding.navChange1D : 0;
+            const unitsVal = Number.isFinite(holding.units) ? holding.units : 0;
+            const avgBuyNavVal = Number.isFinite(holding.avgBuyNav) ? holding.avgBuyNav : 0;
+            const currentNavVal = Number.isFinite(holding.currentNav) ? holding.currentNav : 0;
+            const totalGainPctVal = Number.isFinite(holding.totalGainPercentage) ? holding.totalGainPercentage : 0;
+            const xirrVal = Number.isFinite(holding.xirr) ? holding.xirr : 0;
+            const allocPctVal = Number.isFinite(holding.allocationPercentage) ? holding.allocationPercentage : 0;
 
             return (
               <div
                 key={`mobile_${holding.schemeCode}_${holding.folioNumber}`}
-                onClick={() => onViewTransactions(holding.schemeCode)}
+                onClick={() => setSelectedHoldingKey(`${holding.schemeCode}_${holding.folioNumber}`)}
                 className="bg-neutral-900 border border-neutral-800 hover:border-neutral-700 active:bg-neutral-800/60 rounded-2xl shadow-sm transition cursor-pointer p-4 space-y-3"
               >
                 {/* Header: Scheme Name & Plan */}
@@ -97,10 +127,10 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <div className="text-right">
-                      <div className="font-mono font-semibold text-neutral-200">₹{holding.currentNav.toFixed(2)}</div>
-                      {holding.navChange1D !== undefined && holding.navChange1D !== 0 && (
-                        <div className={`text-[10px] font-mono flex items-center justify-end gap-0.5 ${(holding.navChange1D || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {(holding.navChange1D || 0) >= 0 ? '+' : ''}{holding.navChange1D.toFixed(2)}%
+                      <div className="font-mono font-semibold text-neutral-200">₹{currentNavVal.toFixed(2)}</div>
+                      {navChange !== 0 && (
+                        <div className={`text-[10px] font-mono flex items-center justify-end gap-0.5 ${navChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {navChange >= 0 ? '+' : ''}{navChange.toFixed(2)}%
                         </div>
                       )}
                     </div>
@@ -118,15 +148,31 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                   </div>
                 </div>
 
+                {/* Units Holding & Average Buy NAV (Prominently visible on mobile card!) */}
+                <div className="grid grid-cols-2 gap-3 text-xs bg-neutral-950/40 px-3 py-2.5 rounded-xl border border-neutral-800/50">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-neutral-500 block">Units Holding</span>
+                    <span className="font-mono font-bold text-emerald-300 text-sm">
+                      {unitsVal.toFixed(3)} <span className="text-[11px] text-neutral-400 font-normal">units</span>
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] uppercase font-bold text-neutral-500 block">Avg Buy NAV</span>
+                    <span className="font-mono font-medium text-neutral-200 text-sm">
+                      ₹{avgBuyNavVal.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
                 {/* Financial Grid */}
                 <div className="grid grid-cols-2 gap-3 pt-1 border-t border-neutral-800/80 text-xs">
                   <div>
                     <span className="text-[10px] uppercase font-bold text-neutral-500 block">Current Value</span>
                     <div className="font-bold text-white font-mono text-base mt-0.5">
-                      <PrivacyValue value={formatINR(holding.currentValue)} />
+                      <PrivacyValue value={formatINR(holding.currentValue || 0)} />
                     </div>
                     <span className="text-[11px] text-neutral-400 block mt-0.5">
-                      Inv: <PrivacyValue value={formatINR(holding.investedAmount, true)} />
+                      Inv: <PrivacyValue value={formatINR(holding.investedAmount || 0, true)} />
                     </span>
                   </div>
 
@@ -134,12 +180,12 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                     <span className="text-[10px] uppercase font-bold text-neutral-500 block">Returns & XIRR</span>
                     <div className={`font-bold font-mono text-sm mt-0.5 flex items-center justify-end ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {isProfit ? <TrendingUp className="w-3.5 h-3.5 mr-1" /> : <TrendingDown className="w-3.5 h-3.5 mr-1" />}
-                      <PrivacyValue value={`${isProfit ? '+' : ''}${formatINR(holding.totalGain)} (${isProfit ? '+' : ''}${holding.totalGainPercentage.toFixed(1)}%)`} />
+                      <PrivacyValue value={`${isProfit ? '+' : ''}${formatINR(holding.totalGain || 0)} (${isProfit ? '+' : ''}${totalGainPctVal.toFixed(1)}%)`} />
                     </div>
                     <div className="mt-1 flex items-center justify-end gap-1.5">
                       <span className="text-[10px] text-neutral-400">XIRR:</span>
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-teal-500/10 text-teal-300 border border-teal-500/20">
-                        {holding.xirr > 0 ? `+${holding.xirr.toFixed(1)}%` : `${holding.xirr.toFixed(1)}%`}
+                        {xirrVal > 0 ? `+${xirrVal.toFixed(1)}%` : `${xirrVal.toFixed(1)}%`}
                       </span>
                     </div>
                   </div>
@@ -148,11 +194,11 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                 {/* Allocation bar */}
                 <div className="pt-1 flex items-center justify-between text-[11px] text-neutral-400">
                   <div className="flex items-center gap-2 w-full">
-                    <span>Portfolio Weight: <strong className="text-neutral-200">{holding.allocationPercentage.toFixed(1)}%</strong></span>
+                    <span>Portfolio Weight: <strong className="text-neutral-200">{allocPctVal.toFixed(1)}%</strong></span>
                     <div className="flex-1 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
                       <div
                         className="bg-emerald-500 h-full rounded-full"
-                        style={{ width: `${Math.min(100, holding.allocationPercentage * 2.5)}%` }}
+                        style={{ width: `${Math.min(100, allocPctVal * 2.5)}%` }}
                       />
                     </div>
                   </div>
@@ -190,19 +236,26 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                 </tr>
               ) : (
                 displayHoldings.map((holding) => {
-                  const isProfit = holding.totalGain >= 0;
-                  const isDayUp = holding.navChange1D >= 0;
+                  const isProfit = (holding.totalGain || 0) >= 0;
+                  const navChange = Number.isFinite(holding.navChange1D) ? holding.navChange1D : 0;
+                  const isDayUp = navChange >= 0;
                   const isSyncing = syncingCode === holding.schemeCode;
                   const plan = holding.planType || 'Direct';
                   const option = holding.optionType || 'Growth';
+                  const unitsVal = Number.isFinite(holding.units) ? holding.units : 0;
+                  const avgBuyNavVal = Number.isFinite(holding.avgBuyNav) ? holding.avgBuyNav : 0;
+                  const currentNavVal = Number.isFinite(holding.currentNav) ? holding.currentNav : 0;
+                  const totalGainPctVal = Number.isFinite(holding.totalGainPercentage) ? holding.totalGainPercentage : 0;
+                  const xirrVal = Number.isFinite(holding.xirr) ? holding.xirr : 0;
+                  const allocPctVal = Number.isFinite(holding.allocationPercentage) ? holding.allocationPercentage : 0;
                   const rowPy = 'py-3';
 
                   return (
                     <tr 
                       key={`${holding.schemeCode}_${holding.folioNumber}`}
-                      onClick={() => onViewTransactions(holding.schemeCode)}
+                      onClick={() => setSelectedHoldingKey(`${holding.schemeCode}_${holding.folioNumber}`)}
                       className="hover:bg-neutral-800/40 transition group cursor-pointer"
-                      title="Click to view transactions in ledger"
+                      title="Click to view holding details"
                     >
                       {/* Scheme & Folio */}
                       <td className={`${rowPy} px-4`}>
@@ -244,18 +297,18 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
 
                       {/* Units & Avg Buy NAV */}
                       <td className={`${rowPy} px-3 text-right whitespace-nowrap`}>
-                        <div className="font-mono font-medium text-neutral-200">
-                          {holding.units.toFixed(3)} units
+                        <div className="font-mono font-bold text-emerald-300 text-sm">
+                          {unitsVal.toFixed(3)} <span className="text-[11px] text-neutral-400 font-normal">units</span>
                         </div>
-                        <div className="text-[11px] text-neutral-400">
-                          Avg: ₹{holding.avgBuyNav.toFixed(2)}
+                        <div className="text-[11px] text-neutral-400 font-mono mt-0.5">
+                          Avg: ₹{avgBuyNavVal.toFixed(2)}
                         </div>
                       </td>
 
                       {/* Current Live NAV */}
                       <td className={`${rowPy} px-3 text-right whitespace-nowrap`}>
                         <div className="font-mono font-bold text-neutral-100 flex items-center justify-end gap-1.5">
-                          <span>₹{holding.currentNav >= 1000 ? holding.currentNav.toFixed(2) : Number.isInteger(holding.currentNav) ? holding.currentNav.toFixed(2) : holding.currentNav.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')}</span>
+                          <span>₹{currentNavVal >= 1000 ? currentNavVal.toFixed(2) : Number.isInteger(currentNavVal) ? currentNavVal.toFixed(2) : currentNavVal.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')}</span>
                           <button
                             id={`sync-holding-${holding.schemeCode}`}
                             onClick={(e) => {
@@ -270,7 +323,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                         </div>
                         <div className="flex items-center justify-end gap-1.5 text-[11px] font-medium mt-0.5">
                           <span className={isDayUp ? 'text-emerald-400' : 'text-rose-400'}>
-                            {isDayUp ? '+' : ''}{holding.navChange1D.toFixed(2)}% (1D)
+                            {isDayUp ? '+' : ''}{navChange.toFixed(2)}% (1D)
                           </span>
                           {holding.navDate && (
                             <span className="text-neutral-500 text-[10px]" title={`NAV Date: ${formatNavDateDisplay(holding.navDate)}`}>
@@ -283,40 +336,40 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                       {/* Current Value & Invested */}
                       <td className={`${rowPy} px-3 text-right whitespace-nowrap`}>
                         <div className="font-bold text-white text-sm font-mono">
-                          <PrivacyValue value={formatINR(holding.currentValue)} />
+                          <PrivacyValue value={formatINR(holding.currentValue || 0)} />
                         </div>
                         <div className="text-[11px] text-neutral-400">
-                          Inv: <PrivacyValue value={formatINR(holding.investedAmount, true)} />
+                          Inv: <PrivacyValue value={formatINR(holding.investedAmount || 0, true)} />
                         </div>
                       </td>
 
                       {/* Total Profit / ROI */}
                       <td className={`${rowPy} px-3 text-right whitespace-nowrap`}>
                         <div className={`font-bold font-mono ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          <PrivacyValue value={`${isProfit ? '+' : ''}${formatINR(holding.totalGain)}`} />
+                          <PrivacyValue value={`${isProfit ? '+' : ''}${formatINR(holding.totalGain || 0)}`} />
                         </div>
                         <div className={`text-[11px] font-semibold flex items-center justify-end ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
                           {isProfit ? <TrendingUp className="w-3 h-3 mr-0.5" /> : <TrendingDown className="w-3 h-3 mr-0.5" />}
-                          {isProfit ? '+' : ''}{holding.totalGainPercentage.toFixed(2)}%
+                          {isProfit ? '+' : ''}{totalGainPctVal.toFixed(2)}%
                         </div>
                       </td>
 
                       {/* XIRR */}
                       <td className={`${rowPy} px-3 text-right whitespace-nowrap`}>
                         <span className="px-2 py-0.5 rounded-md font-bold font-mono text-xs bg-teal-500/10 text-teal-300 border border-teal-500/20">
-                          {holding.xirr > 0 ? `+${holding.xirr.toFixed(2)}%` : `${holding.xirr.toFixed(2)}%`}
+                          {xirrVal > 0 ? `+${xirrVal.toFixed(2)}%` : `${xirrVal.toFixed(2)}%`}
                         </span>
                       </td>
 
                       {/* Allocation % */}
                       <td className={`${rowPy} px-3 text-right whitespace-nowrap`}>
                         <div className="font-semibold text-neutral-300">
-                          {holding.allocationPercentage.toFixed(1)}%
+                          {allocPctVal.toFixed(1)}%
                         </div>
                         <div className="w-16 h-1.5 bg-neutral-800 rounded-full overflow-hidden ml-auto mt-1">
                           <div
                             className="bg-emerald-500 h-full rounded-full"
-                            style={{ width: `${Math.min(100, holding.allocationPercentage * 2.5)}%` }}
+                            style={{ width: `${Math.min(100, allocPctVal * 2.5)}%` }}
                           />
                         </div>
                       </td>
