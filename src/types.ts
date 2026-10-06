@@ -76,6 +76,9 @@ export interface PortfolioSummary {
   dayGain: number;
   dayGainPercentage: number;
   xirr: number;
+  niftyXirr?: number;
+  alphaVsNifty?: number;
+  niftyCurrentValue?: number;
   holdingsCount: number;
   folionsCount: number;
   transactionsCount: number;

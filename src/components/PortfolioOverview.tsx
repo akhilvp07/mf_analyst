@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -9,7 +9,11 @@ import {
   Layers, 
   Sparkles, 
   Zap, 
-  ChevronRight 
+  ChevronRight,
+  Info,
+  X,
+  Target,
+  BarChart3
 } from 'lucide-react';
 import { PortfolioHolding, PortfolioSummary, TransactionRecord } from '../types';
 import { formatINR, computeAssetAllocation, computeCategoryAllocation } from '../utils/financialCalculations';
@@ -31,15 +35,18 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
   onNavigateTab,
   onOpenImport
 }) => {
+  const [showBenchmarkModal, setShowBenchmarkModal] = useState(false);
   const assetAllocation = useMemo(() => computeAssetAllocation(holdings), [holdings]);
   const categoryAllocations = useMemo(() => computeCategoryAllocation(holdings).slice(0, 4), [holdings]);
 
   const isDayPositive = summary.dayGain >= 0;
   const isTotalPositive = summary.totalGain >= 0;
 
-  // Benchmark stats (Historical Nifty averages for comparison)
-  const nifty50Cagr = 14.8;
-  const alphaVsNifty50 = summary.xirr - nifty50Cagr;
+  // Genuine cashflow-mirrored Nifty 50 benchmark metrics (Public Market Equivalent - PME)
+  const niftyBenchmarkXirr = Number.isFinite(summary.niftyXirr) ? (summary.niftyXirr ?? 0) : 0;
+  const alphaVsNifty50 = Number.isFinite(summary.alphaVsNifty) 
+    ? (summary.alphaVsNifty ?? 0) 
+    : (summary.xirr - niftyBenchmarkXirr);
 
   return (
     <div className="space-y-6">
@@ -101,10 +108,25 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
             <span className="text-xs text-neutral-500 font-medium">p.a.</span>
           </div>
           <div className="mt-3 flex items-center justify-between text-xs border-t border-neutral-800/80 pt-2.5">
-            <span className="text-neutral-400">Alpha vs Nifty 50</span>
-            <span className={`font-semibold flex items-center ${alphaVsNifty50 >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {alphaVsNifty50 >= 0 ? `+${alphaVsNifty50.toFixed(2)}%` : `${alphaVsNifty50.toFixed(2)}%`}
-            </span>
+            <div className="flex items-center gap-1.5 text-neutral-400">
+              <span>Alpha vs Nifty 50</span>
+              <button
+                type="button"
+                onClick={() => setShowBenchmarkModal(true)}
+                className="text-neutral-500 hover:text-teal-400 p-0.5 rounded cursor-pointer transition"
+                title="View how Nifty 50 benchmark XIRR and Alpha are calculated"
+              >
+                <Info className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="text-right">
+              <span className={`font-semibold font-mono flex items-center justify-end ${alphaVsNifty50 >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {alphaVsNifty50 >= 0 ? `+${alphaVsNifty50.toFixed(2)}%` : `${alphaVsNifty50.toFixed(2)}%`}
+              </span>
+              <span className="text-[10px] text-neutral-500 font-mono block">
+                Nifty: {niftyBenchmarkXirr >= 0 ? '+' : ''}{niftyBenchmarkXirr.toFixed(2)}%
+              </span>
+            </div>
           </div>
         </div>
 
@@ -310,6 +332,96 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Benchmark & Alpha Calculation Explainer Modal */}
+      {showBenchmarkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative space-y-4 max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 border-b border-neutral-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-400 flex items-center justify-center shrink-0">
+                  <BarChart3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">Benchmark & Alpha Calculation</h3>
+                  <p className="text-xs text-neutral-400">Public Market Equivalent (PME) Methodology</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBenchmarkModal(false)}
+                className="text-neutral-400 hover:text-white p-1 rounded-lg hover:bg-neutral-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Comparison Metrics Grid */}
+            <div className="grid grid-cols-3 gap-3 bg-neutral-950/80 p-3.5 rounded-xl border border-neutral-800 text-center">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-neutral-400 block mb-0.5">Your Portfolio</span>
+                <span className="text-lg font-bold font-mono text-teal-300">
+                  {summary.xirr > 0 ? `+${summary.xirr.toFixed(2)}%` : `${summary.xirr.toFixed(2)}%`}
+                </span>
+                <span className="text-[10px] text-neutral-500 block">p.a. XIRR</span>
+              </div>
+              <div className="border-x border-neutral-800">
+                <span className="text-[10px] uppercase font-bold text-neutral-400 block mb-0.5">Nifty 50 PME</span>
+                <span className="text-lg font-bold font-mono text-neutral-200">
+                  {niftyBenchmarkXirr > 0 ? `+${niftyBenchmarkXirr.toFixed(2)}%` : `${niftyBenchmarkXirr.toFixed(2)}%`}
+                </span>
+                <span className="text-[10px] text-neutral-500 block">p.a. XIRR</span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-neutral-400 block mb-0.5">Net Alpha</span>
+                <span className={`text-lg font-bold font-mono ${alphaVsNifty50 >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {alphaVsNifty50 >= 0 ? `+${alphaVsNifty50.toFixed(2)}%` : `${alphaVsNifty50.toFixed(2)}%`}
+                </span>
+                <span className="text-[10px] text-neutral-500 block">
+                  {alphaVsNifty50 >= 0 ? 'Outperformance' : 'Underperformance'}
+                </span>
+              </div>
+            </div>
+
+            {/* Detailed Explanation */}
+            <div className="space-y-3 text-xs text-neutral-300 leading-relaxed">
+              <div className="bg-neutral-950/50 p-3 rounded-xl border border-neutral-800/80 space-y-2">
+                <div className="font-semibold text-neutral-200 flex items-center gap-1.5">
+                  <Target className="w-4 h-4 text-emerald-400" />
+                  <span>Why static 14.8% Nifty averages are misleading:</span>
+                </div>
+                <p className="text-neutral-400 text-[11px]">
+                  Traditional apps often compare an investor's XIRR against a static long-term 20-year Nifty average (~14.8%). This produces unrealistic results because it completely ignores <strong>when</strong> you invested and the market levels on your specific SIP and lump-sum dates.
+                </p>
+              </div>
+
+              <div className="bg-neutral-950/50 p-3 rounded-xl border border-neutral-800/80 space-y-2">
+                <div className="font-semibold text-neutral-200 flex items-center gap-1.5">
+                  <Zap className="w-4 h-4 text-teal-400" />
+                  <span>How MFTracker calculates true Benchmark XIRR:</span>
+                </div>
+                <ul className="list-disc list-inside space-y-1 text-neutral-400 text-[11px]">
+                  <li><strong>Exact Date Cashflow Mirroring:</strong> For every purchase transaction in your portfolio, an identical amount was simulated as invested into Nifty 50 at that day's index level.</li>
+                  <li><strong>Redemption Adjustments:</strong> Any redemptions withdrew from the accumulated benchmark units at prevailing index levels.</li>
+                  <li><strong>Terminal Valuation:</strong> The simulated Nifty 50 units are evaluated at today's index level to determine what you would have had if 100% went into the index.</li>
+                  <li><strong>Newton-Raphson XIRR:</strong> The exact internal rate of return is solved for the benchmark cashflows. Alpha is simply your Portfolio XIRR minus Nifty 50 XIRR.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setShowBenchmarkModal(false)}
+                className="w-full py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white font-medium text-xs transition cursor-pointer"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

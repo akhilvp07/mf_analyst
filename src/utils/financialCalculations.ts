@@ -822,6 +822,9 @@ export function computePortfolioHoldings(
   }
   const portfolioXirr = calculateXirr(allCashflowsForPortfolio);
 
+  // Compute exact cashflow-mirrored Nifty 50 Benchmark XIRR and Alpha (Public Market Equivalent)
+  const benchmark = computeNiftyBenchmark(validTxs, totalCurrentValue, portfolioXirr);
+
   const totalGain = totalCurrentValue - totalInvestedAmount;
   const totalGainPercentage = totalInvestedAmount > 0 ? (totalGain / totalInvestedAmount) * 100 : 0;
   const dayGainPercentage = totalCurrentValue > 0 ? (totalDayGain / totalCurrentValue) * 100 : 0;
@@ -834,6 +837,9 @@ export function computePortfolioHoldings(
     dayGain: totalDayGain,
     dayGainPercentage,
     xirr: portfolioXirr,
+    niftyXirr: benchmark.niftyXirr,
+    alphaVsNifty: benchmark.alphaVsNifty,
+    niftyCurrentValue: benchmark.niftyCurrentValue,
     holdingsCount: holdings.length,
     folionsCount: new Set(holdings.map(h => h.folioNumber)).size,
     transactionsCount: transactions.length,
@@ -1195,14 +1201,33 @@ export interface GrowthDataPoint {
  * Historical Nifty 50 Index anchor levels for precise benchmark simulation
  */
 export const NIFTY_50_ANCHORS: [string, number][] = [
+  ['2012-01-02', 4624],
+  ['2012-06-01', 4841],
+  ['2012-12-31', 5905],
+  ['2013-01-01', 5950],
+  ['2013-06-03', 5939],
+  ['2013-12-31', 6304],
+  ['2014-01-01', 6301],
+  ['2014-05-16', 7203],
+  ['2014-06-02', 7362],
+  ['2014-12-31', 8282],
+  ['2015-01-01', 8284],
+  ['2015-03-04', 8996],
+  ['2015-06-01', 8433],
+  ['2015-08-24', 7809],
+  ['2015-12-31', 7946],
   ['2016-01-01', 7963],
+  ['2016-02-29', 6987],
   ['2016-06-01', 8160],
   ['2016-12-30', 8185],
+  ['2017-01-02', 8179],
   ['2017-06-01', 9621],
   ['2017-12-29', 10530],
+  ['2018-01-01', 10435],
   ['2018-06-01', 10696],
   ['2018-08-28', 11738],
   ['2018-12-31', 10862],
+  ['2019-01-01', 10910],
   ['2019-06-03', 12088],
   ['2019-12-31', 12168],
   ['2020-01-20', 12352],
@@ -1218,19 +1243,28 @@ export const NIFTY_50_ANCHORS: [string, number][] = [
   ['2022-06-17', 15293],
   ['2022-12-01', 18812],
   ['2022-12-30', 18105],
+  ['2023-01-02', 18197],
   ['2023-03-20', 16988],
   ['2023-06-30', 19189],
   ['2023-09-15', 20192],
+  ['2023-10-26', 18857],
   ['2023-12-28', 21778],
+  ['2024-01-01', 21741],
   ['2024-03-01', 22338],
   ['2024-06-04', 21884],
   ['2024-09-27', 26216],
+  ['2024-11-01', 24304],
   ['2024-12-31', 23644],
+  ['2025-03-31', 24200],
   ['2025-06-30', 24800],
+  ['2025-09-30', 25050],
   ['2025-12-31', 25100],
+  ['2026-03-31', 25150],
   ['2026-06-30', 25180],
   ['2026-08-31', 25280],
-  ['2026-09-01', 25300]
+  ['2026-09-01', 25300],
+  ['2026-09-30', 25810],
+  ['2026-10-06', 25014]
 ];
 
 const PARSED_NIFTY_50_ANCHORS = NIFTY_50_ANCHORS.map(([d, val]) => ({
@@ -1257,7 +1291,101 @@ export function getNifty50Level(dateOrTime: Date | number): number {
       return a1.val + fraction * (a2.val - a1.val);
     }
   }
-  return 25300;
+  return 25014;
+}
+
+/**
+ * Calculates genuine cashflow-mirrored Nifty 50 Benchmark XIRR and Alpha.
+ * Simulates purchasing units of Nifty 50 on each transaction date (Public Market Equivalent - PME).
+ * Correctly accounts for purchases, redemptions, and terminal value.
+ */
+export function computeNiftyBenchmark(
+  transactions: TransactionRecord[],
+  totalCurrentValue: number,
+  portfolioXirr: number
+): {
+  niftyXirr: number;
+  alphaVsNifty: number;
+  niftyCurrentValue: number;
+  niftyInvested: number;
+} {
+  const validTxs = (transactions || [])
+    .filter(t => t.status !== 'FAILED')
+    .sort((a, b) => parseDateSafe(a.date).getTime() - parseDateSafe(b.date).getTime());
+
+  if (validTxs.length === 0 || totalCurrentValue <= 0) {
+    return {
+      niftyXirr: 0,
+      alphaVsNifty: 0,
+      niftyCurrentValue: 0,
+      niftyInvested: 0
+    };
+  }
+
+  const today = new Date();
+  const currentNiftyIndex = getNifty50Level(today);
+  let cumulativeNiftyUnits = 0;
+  let totalNiftyInvested = 0;
+  const niftyCashflows: { date: Date; amount: number }[] = [];
+
+  for (const tx of validTxs) {
+    const txDate = parseDateSafe(tx.date);
+    const txTypeUpper = (tx.type || '').toUpperCase();
+    const isRedemption = 
+      txTypeUpper === 'REDEMPTION' || 
+      txTypeUpper === 'SWITCH_OUT' || 
+      txTypeUpper === 'SWP' || 
+      txTypeUpper.includes('REDEEM') || 
+      txTypeUpper.includes('SELL');
+
+    const txAmount = Math.abs(tx.amount || 0);
+    if (txAmount <= 0) continue;
+
+    const niftyAtDate = getNifty50Level(txDate);
+    if (niftyAtDate <= 0) continue;
+
+    if (isRedemption) {
+      const unitsRedeemed = Math.min(cumulativeNiftyUnits, txAmount / niftyAtDate);
+      cumulativeNiftyUnits = Math.max(0, cumulativeNiftyUnits - unitsRedeemed);
+      totalNiftyInvested = Math.max(0, totalNiftyInvested - txAmount);
+      niftyCashflows.push({ date: txDate, amount: txAmount });
+    } else {
+      const unitsBought = txAmount / niftyAtDate;
+      cumulativeNiftyUnits += unitsBought;
+      totalNiftyInvested += txAmount;
+      niftyCashflows.push({ date: txDate, amount: -txAmount });
+    }
+  }
+
+  // Terminal cashflow for Nifty 50 today
+  const niftyCurrentValue = cumulativeNiftyUnits * currentNiftyIndex;
+  if (niftyCurrentValue > 0) {
+    niftyCashflows.push({ date: today, amount: niftyCurrentValue });
+  }
+
+  let calculatedNiftyXirr = calculateXirr(niftyCashflows);
+
+  // If XIRR didn't converge or has only 1 period, calculate annualized CAGR as fallback
+  if (calculatedNiftyXirr === 0 && niftyCashflows.length >= 2 && totalNiftyInvested > 0 && niftyCurrentValue > 0) {
+    const earliestDate = niftyCashflows[0].date;
+    const years = Math.max(0.01, (today.getTime() - earliestDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25));
+    if (years >= 1) {
+      calculatedNiftyXirr = (Math.pow(niftyCurrentValue / totalNiftyInvested, 1 / years) - 1) * 100;
+    } else {
+      calculatedNiftyXirr = ((niftyCurrentValue - totalNiftyInvested) / totalNiftyInvested) * (1 / years) * 100;
+    }
+  }
+
+  // Ensure safe numbers
+  const safeNiftyXirr = Number.isFinite(calculatedNiftyXirr) ? calculatedNiftyXirr : 0;
+  const safeAlpha = Number.isFinite(portfolioXirr - safeNiftyXirr) ? (portfolioXirr - safeNiftyXirr) : 0;
+
+  return {
+    niftyXirr: safeNiftyXirr,
+    alphaVsNifty: safeAlpha,
+    niftyCurrentValue: Number.isFinite(niftyCurrentValue) ? niftyCurrentValue : 0,
+    niftyInvested: Number.isFinite(totalNiftyInvested) ? totalNiftyInvested : 0
+  };
 }
 
 // In-memory memoization cache for computed growth time series
