@@ -91,6 +91,7 @@ export interface NiftyHistoryPoint {
   peak: number;
   drawdownPercent: number;
   pe: number;
+  peTtm: number; // Consolidated P/E Ratio (TTM)
   isDrawdownAlert: boolean;
   isPeAlert: boolean;
 }
@@ -112,10 +113,11 @@ export interface NiftyMarketData {
   triggerLevel15Percent: number;
   pointsTo15PercentTrigger: number;
   currentPe: number;
+  currentPeTtm: number; // Consolidated P/E Ratio (TTM)
+  peTtm: number; // Alias for P/E Ratio (TTM)
   peThreshold: number;
   isPeAlertActive: boolean;
   peZone: 'deep_value' | 'accumulation' | 'fair' | 'expensive';
-  historicalAveragePe: number;
   pointsToPe20Threshold: number;
   conciseSummary: string;
   history: NiftyHistoryPoint[];

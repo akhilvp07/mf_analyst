@@ -6,7 +6,7 @@ import {
   CheckCircle2, 
   RefreshCw, 
   Bell, 
-  Sliders, 
+  Target, 
   ArrowDownRight, 
   Sparkles, 
   ShieldAlert, 
@@ -35,7 +35,6 @@ import {
   fetchNiftyMarketData, 
   loadAlertSettings, 
   saveAlertSettings, 
-  calculateSimulatedNiftyMetrics, 
   MarketAlertSettings 
 } from '../services/marketService';
 
@@ -51,10 +50,6 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
   const [settings, setSettings] = useState<MarketAlertSettings>(() => loadAlertSettings());
   const [copiedSummary, setCopiedSummary] = useState<boolean>(false);
 
-  // What-If Simulation controls
-  const [isSimulating, setIsSimulating] = useState<boolean>(false);
-  const [simulatedClose, setSimulatedClose] = useState<number>(22250); // Just below 15% drop to allow immediate simulation verification
-
   // Load market data on mount
   const loadData = async (force: boolean = false) => {
     if (force) setIsRefreshing(true);
@@ -62,9 +57,6 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
     try {
       const data = await fetchNiftyMarketData();
       setMarketData(data);
-      if (!isSimulating && data?.currentClose) {
-        setSimulatedClose(data.currentClose);
-      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -77,38 +69,13 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
     loadData();
   }, []);
 
-  // Compute active or simulated metrics
+  // Compute active metrics based on real live market data
   const activeMetrics = useMemo(() => {
     if (!marketData) return null;
-    if (isSimulating) {
-      const sim = calculateSimulatedNiftyMetrics(
-        simulatedClose,
-        marketData.allTimePeak,
-        1105,
-        settings.drawdownThreshold,
-        settings.peThreshold
-      );
-      return {
-        close: sim.simulatedClose,
-        peak: marketData.allTimePeak,
-        peakDate: marketData.allTimePeakDate,
-        pointDrop: sim.pointDrop,
-        percentDrop: sim.percentDrop,
-        isDrawdownAlert: sim.isDrawdownAlert,
-        triggerLevel15: sim.triggerLevelDrawdown,
-        pointsTo15: sim.pointsToDrawdownTrigger,
-        pe: sim.pe,
-        isPeAlert: sim.isPeAlert,
-        peZone: sim.peZone,
-        priceAtPe20: sim.priceAtPeThreshold,
-        pointsToPe20: sim.pointsToPeThreshold,
-        summaryText: sim.conciseSummary,
-        isSimulated: true
-      };
-    }
 
     const isDrawdownAlert = (marketData.percentDropFromPeak || 0) <= -Math.abs(settings.drawdownThreshold);
-    const isPeAlert = (marketData.currentPe || 0) < settings.peThreshold;
+    const peTtmValue = marketData.currentPeTtm ?? marketData.peTtm ?? marketData.currentPe ?? 0;
+    const isPeAlert = peTtmValue < settings.peThreshold;
 
     return {
       close: marketData.currentClose,
@@ -119,7 +86,8 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
       isDrawdownAlert,
       triggerLevel15: marketData.triggerLevel15Percent,
       pointsTo15: marketData.pointsTo15PercentTrigger,
-      pe: marketData.currentPe,
+      pe: peTtmValue,
+      peTtm: peTtmValue,
       isPeAlert,
       peZone: marketData.peZone,
       priceAtPe20: Number((settings.peThreshold * 1105).toFixed(2)),
@@ -127,7 +95,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
       summaryText: marketData.conciseSummary,
       isSimulated: false
     };
-  }, [marketData, isSimulating, simulatedClose, settings]);
+  }, [marketData, settings]);
 
   const handleCopySummary = () => {
     if (!activeMetrics?.summaryText) return;
@@ -160,12 +128,13 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
     isDrawdownAlert: false,
     triggerLevel15: 22283.64,
     pointsTo15: 862.51,
-    pe: 20.95,
-    isPeAlert: false,
-    peZone: 'accumulation',
-    priceAtPe20: 22100.00,
-    pointsToPe20: 1046.15,
-    summaryText: 'Nifty 50 is 11.71% below peak. PE: 20.95.',
+    pe: 19.77,
+    peTtm: 19.77,
+    isPeAlert: true,
+    peZone: 'deep_value',
+    priceAtPe20: 23415.40,
+    pointsToPe20: -269.25,
+    summaryText: 'Nifty 50 is 11.71% below peak. P/E Ratio (TTM): 19.77 (< 20.00 Buy Trigger Active).',
     isSimulated: false
   };
 
@@ -194,90 +163,21 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
 
           <div className="flex items-center gap-3 shrink-0">
             <button
-              onClick={() => setIsSimulating(!isSimulating)}
-              className={`px-3.5 py-2 text-xs font-semibold rounded-xl border transition-all flex items-center gap-2 ${
-                isSimulating 
-                  ? 'bg-amber-500/10 border-amber-500/40 text-amber-300' 
-                  : 'bg-neutral-800/80 hover:bg-neutral-800 border-neutral-700 text-neutral-300'
-              }`}
-            >
-              <Sliders className="w-3.5 h-3.5" />
-              <span>{isSimulating ? 'Exit Simulation Mode' : 'What-If Sandbox'}</span>
-            </button>
-
-            <button
               onClick={() => loadData(true)}
               disabled={isRefreshing}
-              className="px-3.5 py-2 text-xs font-medium rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 transition-colors flex items-center gap-2"
+              className="px-3.5 py-2 text-xs font-medium rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 transition-colors flex items-center gap-2 cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-emerald-400' : ''}`} />
               <span>{isRefreshing ? 'Refreshing...' : 'Refresh Feed'}</span>
             </button>
           </div>
         </div>
-
-        {/* What-If Simulation Sandbox Panel */}
-        {isSimulating && (
-          <div className="mt-5 p-4 rounded-xl bg-amber-950/20 border border-amber-500/30 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-amber-400">
-                <Sliders className="w-4 h-4" />
-                <span>Simulation Sandbox Active: Test Custom Index Level & Trigger Conditions</span>
-              </div>
-              <div className="text-xs text-neutral-400 font-mono">
-                Simulated Nifty: <strong className="text-white">₹{simulatedClose.toLocaleString('en-IN')}</strong>
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center gap-4">
-              <div className="flex-1 w-full">
-                <input
-                  type="range"
-                  min="19000"
-                  max="26500"
-                  step="25"
-                  value={simulatedClose}
-                  onChange={(e) => setSimulatedClose(Number(e.target.value))}
-                  className="w-full accent-amber-500 cursor-pointer"
-                />
-                <div className="flex justify-between text-[11px] text-neutral-500 mt-1 font-mono">
-                  <span>19,000 (-27.5% Deep Crash)</span>
-                  <span>22,283 (-15% Trigger)</span>
-                  <span>26,216 (Peak)</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => setSimulatedClose(22150)}
-                  className="px-2.5 py-1 text-xs font-medium bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg border border-neutral-700"
-                >
-                  Set 22,150 (-15.5% Drop)
-                </button>
-                <button
-                  onClick={() => setSimulatedClose(21800)}
-                  className="px-2.5 py-1 text-xs font-medium bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg border border-neutral-700"
-                >
-                  Set 21,800 (PE &lt; 20)
-                </button>
-                <button
-                  onClick={() => setSimulatedClose(marketData?.currentClose || 23146)}
-                  className="px-2.5 py-1 text-xs font-medium bg-neutral-800 hover:bg-neutral-700 text-neutral-400 rounded-lg border border-neutral-700"
-                >
-                  Reset Live
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Feature 1 & 2 Primary Alert Cards Grid */}
+      {/* Primary Alert Cards Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
-        {/* ========================================================================= */}
-        {/* FEATURE 1: NIFTY 50 15%+ DRAWDOWN ALERT CARD */}
-        {/* ========================================================================= */}
+        {/* NIFTY 50 15%+ DRAWDOWN ALERT CARD */}
         <div className={`p-6 rounded-2xl border transition-all relative overflow-hidden ${
           metrics.isDrawdownAlert
             ? 'bg-rose-950/20 border-rose-500/50 shadow-lg shadow-rose-950/20'
@@ -289,8 +189,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
           <div className="flex items-start justify-between gap-4 mb-4">
             <div>
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider mb-1 text-neutral-400">
-                <span>Feature 1</span>
-                <span aria-hidden="true">·</span>
+                <TrendingDown className="w-3.5 h-3.5 text-rose-400" />
                 <span>Peak Drawdown Rule</span>
               </div>
               <h2 className="text-lg font-bold text-white flex items-center gap-2.5">
@@ -432,9 +331,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
           </div>
         </div>
 
-        {/* ========================================================================= */}
-        {/* FEATURE 2: NIFTY PE < 20 TRACKING & ALERT CARD */}
-        {/* ========================================================================= */}
+        {/* NIFTY PE (TTM) < 20 TRACKING & ALERT CARD */}
         <div className={`p-6 rounded-2xl border transition-all relative overflow-hidden ${
           metrics.isPeAlert
             ? 'bg-emerald-950/20 border-emerald-500/50 shadow-lg shadow-emerald-950/20'
@@ -446,12 +343,11 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
           <div className="flex items-start justify-between gap-4 mb-4">
             <div>
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider mb-1 text-neutral-400">
-                <span>Feature 2</span>
-                <span aria-hidden="true">·</span>
-                <span>Valuation Multiple Rule</span>
+                <Target className="w-3.5 h-3.5 text-emerald-400" />
+                <span>P/E Ratio (TTM) Rule</span>
               </div>
               <h2 className="text-lg font-bold text-white flex items-center gap-2.5">
-                Nifty P/E Ratio &lt; 20 Alert
+                Nifty P/E Ratio (TTM) &lt; 20 Alert
               </h2>
             </div>
 
@@ -466,17 +362,17 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
               {metrics.isPeAlert ? (
                 <>
                   <Flame className="w-4 h-4 text-emerald-400" />
-                  <span>DEEP VALUE BUY OPPORTUNITY (PE &lt; 20)</span>
+                  <span>DEEP VALUE BUY OPPORTUNITY (P/E TTM &lt; 20)</span>
                 </>
               ) : metrics.pe <= 21.5 ? (
                 <>
                   <Activity className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>FAVORABLE ACCUMULATION (PE &le; 21.5)</span>
+                  <span>FAVORABLE ACCUMULATION (P/E TTM &le; 21.5)</span>
                 </>
               ) : (
                 <>
                   <CheckCircle2 className="w-3.5 h-3.5 text-neutral-500" />
-                  <span>FAIR VALUATION (PE &gt; 21.5)</span>
+                  <span>FAIR VALUATION (P/E TTM &gt; 21.5)</span>
                 </>
               )}
             </div>
@@ -485,12 +381,13 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
           {/* Key Metric Numbers Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-neutral-950/50 border border-neutral-800/80 mb-4">
             <div>
-              <span className="text-[11px] text-neutral-400 font-medium block">Current Nifty PE</span>
+              <span className="text-[11px] text-neutral-400 font-medium block">P/E Ratio (TTM)</span>
               <span className={`text-lg sm:text-xl font-bold font-mono tabular-nums block mt-0.5 ${
                 metrics.isPeAlert ? 'text-emerald-400 font-extrabold' : 'text-white'
               }`}>
                 {metrics.pe.toFixed(2)}x
               </span>
+              <span className="text-[10px] text-neutral-500 block font-mono">Consolidated TTM</span>
             </div>
 
             <div>
@@ -498,11 +395,11 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
               <span className="text-lg sm:text-xl font-bold font-mono tabular-nums text-emerald-400 block mt-0.5">
                 &lt; 20.00x
               </span>
-              <span className="text-[10px] text-neutral-500 block font-mono">Deep value trigger</span>
+              <span className="text-[10px] text-neutral-500 block font-mono">P/E (TTM) &lt; 20 trigger</span>
             </div>
 
             <div>
-              <span className="text-[11px] text-neutral-400 font-medium block">Distance to PE 20</span>
+              <span className="text-[11px] text-neutral-400 font-medium block">Distance to P/E 20</span>
               <span className={`text-lg sm:text-xl font-bold font-mono tabular-nums block mt-0.5 ${
                 metrics.pe < 20 ? 'text-emerald-400' : 'text-neutral-300'
               }`}>
@@ -515,7 +412,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
             <div>
               <span className="text-[11px] text-neutral-400 font-medium block">Valuation Regime</span>
               <span className="text-xs font-semibold capitalize block mt-1 text-neutral-200">
-                {metrics.peZone === 'deep_value' ? '🔥 Deep Value' : metrics.peZone === 'accumulation' ? 'Accumulation Zone' : 'Fair Value'}
+                {metrics.peZone === 'deep_value' ? '🔥 Deep Value' : metrics.peZone === 'accumulation' ? 'Accumulation Zone' : 'Fair Valuation'}
               </span>
             </div>
           </div>
@@ -523,8 +420,8 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
           {/* Historical PE Valuation Zones Bar */}
           <div className="space-y-2 mb-4">
             <div className="flex justify-between items-center text-xs">
-              <span className="text-neutral-400 font-medium">Historical Nifty Valuation Zones</span>
-              <span className="font-mono text-neutral-300 font-medium">Current: {metrics.pe.toFixed(2)}</span>
+              <span className="text-neutral-400 font-medium">Nifty P/E Ratio (TTM) Valuation Bands</span>
+              <span className="font-mono text-neutral-300 font-medium">Current P/E (TTM): {metrics.pe.toFixed(2)}x</span>
             </div>
 
             <div className="grid grid-cols-4 gap-1 h-3 rounded-full overflow-hidden p-0.5 bg-neutral-800 border border-neutral-700/50">
@@ -561,19 +458,19 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
                 <Info className="w-3.5 h-3.5 text-neutral-400" />
                 <span>Valuation Diagnosis</span>
               </span>
-              <span className="text-[11px] text-neutral-500 font-mono">10-Yr Median PE: ~22.4</span>
+              <span className="text-[11px] text-emerald-400 font-mono">Consolidated TTM Parameter</span>
             </div>
             <p className="leading-relaxed font-sans text-neutral-300">
-              Nifty 50 is trading at a Price-to-Earnings ratio of <strong className="text-white font-mono">{metrics.pe.toFixed(2)}x</strong> (based on trailing consolidated 12-month earnings). 
+              Nifty 50 is trading at a P/E Ratio (TTM) of <strong className="text-white font-mono">{metrics.pe.toFixed(2)}x</strong> (based on trailing consolidated 12-month net corporate earnings). 
               {metrics.isPeAlert
-                ? ' 🚀 Rare Valuation Buy Opportunity triggered! When Nifty PE closes below 20, forward 3-year historical returns have exceeded 18% p.a. in over 95% of past instances.'
-                : ` Index is currently in the ${metrics.peZone === 'accumulation' ? 'favorable accumulation' : 'fair median'} zone. A further dip below ₹${metrics.priceAtPe20.toLocaleString('en-IN')} would trigger the sub-20 PE alert.`}
+                ? ' 🚀 Rare Valuation Buy Opportunity triggered! When Nifty P/E Ratio (TTM) closes below 20, forward 3-year historical returns have exceeded 18% p.a. in over 95% of past instances.'
+                : ` Index is currently in the ${metrics.peZone === 'accumulation' ? 'favorable accumulation' : 'fair valuation'} zone. A further dip below ₹${metrics.priceAtPe20.toLocaleString('en-IN')} would trigger the sub-20 P/E Ratio (TTM) buy alert.`}
             </p>
           </div>
 
           {/* Historical Precedent Proof */}
           <div className="mt-4 pt-3 border-t border-neutral-800 text-[11px] text-neutral-400 flex items-center justify-between">
-            <span>Historical Instances of PE &lt; 20: <strong>2008, 2011, 2016, 2020</strong></span>
+            <span>Historical Instances of P/E (TTM) &lt; 20: <strong>2008, 2011, 2016, 2020</strong></span>
             <span className="text-neutral-500 font-mono">100% positive 5-yr return</span>
           </div>
         </div>
@@ -606,7 +503,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-0.5 bg-cyan-400" />
-              <span>Nifty PE (Right)</span>
+              <span>P/E Ratio (TTM) (Right)</span>
             </div>
           </div>
         </div>
@@ -653,12 +550,12 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
                       <div className="text-neutral-400 font-sans font-semibold mb-1">{label}</div>
                       <div className="text-emerald-400">Close: ₹{Number(item.close).toLocaleString('en-IN')}</div>
                       <div className="text-amber-400">Peak Drawdown: {item.drawdownPercent}%</div>
-                      <div className="text-cyan-400">Nifty PE: {item.pe}x</div>
+                      <div className="text-cyan-400">P/E Ratio (TTM): {item.peTtm ?? item.pe}x</div>
                       {item.isDrawdownAlert && (
                         <div className="text-rose-400 font-bold font-sans">🚨 &ge; 15% Drawdown Alert Active</div>
                       )}
                       {item.isPeAlert && (
-                        <div className="text-emerald-400 font-bold font-sans">🔥 PE &lt; 20 Value Trigger Active</div>
+                        <div className="text-emerald-400 font-bold font-sans">🔥 P/E (TTM) &lt; 20 Value Trigger Active</div>
                       )}
                     </div>
                   );
@@ -678,7 +575,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
                 y={20.0} 
                 stroke="#10b981" 
                 strokeDasharray="3 3" 
-                label={{ value: 'PE 20 Value Line', fill: '#10b981', fontSize: 10, position: 'insideBottomRight' }} 
+                label={{ value: 'P/E (TTM) 20 Trigger', fill: '#10b981', fontSize: 10, position: 'insideBottomRight' }} 
               />
               <Area 
                 yAxisId="left"
@@ -723,7 +620,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
           </div>
           <h4 className="text-sm font-bold text-white">Temporary SIP Multiplier (Booster)</h4>
           <p className="text-xs text-neutral-400 leading-relaxed">
-            While Nifty PE trades below 20, double your regular monthly mutual fund SIP contributions for 3 to 6 months to accumulate units at deep cyclical discounts.
+            While Nifty P/E Ratio (TTM) trades below 20, double your regular monthly mutual fund SIP contributions for 3 to 6 months to accumulate units at deep cyclical discounts.
           </p>
           <div className="text-[11px] text-cyan-400 font-medium">Historical 5-Yr Win Rate: 100%</div>
         </div>
@@ -738,7 +635,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
           </p>
           <button
             onClick={onNavigateToHoldings}
-            className="text-[11px] text-purple-400 hover:text-purple-300 font-medium flex items-center gap-1"
+            className="text-[11px] text-purple-400 hover:text-purple-300 font-medium flex items-center gap-1 cursor-pointer"
           >
             <span>Review Portfolio Allocation →</span>
           </button>
@@ -751,7 +648,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
       <div className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden shadow-sm">
         <div className="p-4 border-b border-neutral-800 flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-bold text-white">Daily Nifty 50 & PE Tracking History</h3>
+            <h3 className="text-sm font-bold text-white">Daily Nifty 50 & P/E Ratio (TTM) Tracking History</h3>
             <p className="text-xs text-neutral-400">Recent observation points with exact drawdown and valuation status.</p>
           </div>
           <span className="text-xs text-neutral-500 font-mono">{chartData.length} recorded sessions</span>
@@ -765,7 +662,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
                 <th className="py-3 px-4 text-right">Closing Price</th>
                 <th className="py-3 px-4 text-right">Peak (Ref)</th>
                 <th className="py-3 px-4 text-right">Drawdown %</th>
-                <th className="py-3 px-4 text-right">Nifty P/E</th>
+                <th className="py-3 px-4 text-right">P/E Ratio (TTM)</th>
                 <th className="py-3 px-4 text-center">Alert Status</th>
               </tr>
             </thead>
@@ -783,11 +680,11 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
                   </td>
                   <td className="py-2.5 px-4 text-center">
                     {row.isDrawdownAlert && row.isPeAlert ? (
-                      <span className="text-[10px] font-sans font-bold text-rose-400">Drawdown &ge;15% &amp; PE &lt;20</span>
+                      <span className="text-[10px] font-sans font-bold text-rose-400">Drawdown &ge;15% &amp; P/E (TTM) &lt;20</span>
                     ) : row.isDrawdownAlert ? (
                       <span className="text-[10px] font-sans font-bold text-rose-400">Drawdown &ge;15% Trigger</span>
                     ) : row.isPeAlert ? (
-                      <span className="text-[10px] font-sans font-bold text-emerald-400">PE &lt;20 Trigger</span>
+                      <span className="text-[10px] font-sans font-bold text-emerald-400">P/E (TTM) &lt;20 Trigger</span>
                     ) : (
                       <span className="text-[10px] font-sans text-neutral-500">Normal Range</span>
                     )}

@@ -1,6 +1,6 @@
 import { NiftyMarketData } from '../types';
 
-const MARKET_CACHE_KEY = 'mftracker_nifty_market_data_v1';
+const MARKET_CACHE_KEY = 'mftracker_nifty_market_data_v2';
 const MARKET_SETTINGS_KEY = 'mftracker_market_alert_settings_v1';
 
 export interface MarketAlertSettings {
@@ -34,25 +34,26 @@ export const FALLBACK_MARKET_DATA: NiftyMarketData = {
   isDrawdownAlertActive: false,
   triggerLevel15Percent: 22283.64,
   pointsTo15PercentTrigger: 862.51,
-  currentPe: 20.95,
+  currentPe: 19.77,
+  currentPeTtm: 19.77,
+  peTtm: 19.77,
   peThreshold: 20.0,
-  isPeAlertActive: false,
-  peZone: 'accumulation',
-  historicalAveragePe: 22.4,
-  pointsToPe20Threshold: 1046.15,
-  conciseSummary: 'Nifty 50 closed at 23,146.15, which is 3,069.90 points (11.71%) below its all-time peak of 26,216.05 (27 Sep 2024). Current Nifty PE is 20.95 (Valuation trigger: < 20.00).',
+  isPeAlertActive: true,
+  peZone: 'deep_value',
+  pointsToPe20Threshold: -269.25,
+  conciseSummary: 'Nifty 50 closed at 23,146.15, which is 3,069.90 points (11.71%) below its all-time peak of 26,216.05 (27 Sep 2024). Current Nifty P/E Ratio (TTM) is 19.77 (Sub-20.00 valuation buy trigger ACTIVE).',
   history: [
-    { date: '2024-09-27', close: 26216.05, peak: 26216.05, drawdownPercent: 0, pe: 23.72, isDrawdownAlert: false, isPeAlert: false },
-    { date: '2024-10-15', close: 25057.35, peak: 26216.05, drawdownPercent: -4.42, pe: 22.68, isDrawdownAlert: false, isPeAlert: false },
-    { date: '2024-11-04', close: 23995.35, peak: 26216.05, drawdownPercent: -8.47, pe: 21.72, isDrawdownAlert: false, isPeAlert: false },
-    { date: '2024-11-20', close: 23518.50, peak: 26216.05, drawdownPercent: -10.29, pe: 21.28, isDrawdownAlert: false, isPeAlert: false },
-    { date: '2024-12-20', close: 23812.80, peak: 26216.05, drawdownPercent: -9.17, pe: 21.55, isDrawdownAlert: false, isPeAlert: false },
-    { date: '2025-01-15', close: 23205.10, peak: 26216.05, drawdownPercent: -11.49, pe: 21.00, isDrawdownAlert: false, isPeAlert: false },
-    { date: '2025-02-05', close: 22850.40, peak: 26216.05, drawdownPercent: -12.84, pe: 20.68, isDrawdownAlert: false, isPeAlert: false },
-    { date: '2025-02-28', close: 22179.90, peak: 26216.05, drawdownPercent: -15.39, pe: 20.07, isDrawdownAlert: true, isPeAlert: false },
-    { date: '2025-03-15', close: 22622.70, peak: 26216.05, drawdownPercent: -13.71, pe: 20.47, isDrawdownAlert: false, isPeAlert: false },
-    { date: '2025-03-25', close: 22997.35, peak: 26216.05, drawdownPercent: -12.28, pe: 20.81, isDrawdownAlert: false, isPeAlert: false },
-    { date: '2025-04-05', close: 23146.15, peak: 26216.05, drawdownPercent: -11.71, pe: 20.95, isDrawdownAlert: false, isPeAlert: false }
+    { date: '2024-09-27', close: 26216.05, peak: 26216.05, drawdownPercent: 0, pe: 22.39, peTtm: 22.39, isDrawdownAlert: false, isPeAlert: false },
+    { date: '2024-10-15', close: 25057.35, peak: 26216.05, drawdownPercent: -4.42, pe: 21.40, peTtm: 21.40, isDrawdownAlert: false, isPeAlert: false },
+    { date: '2024-11-04', close: 23995.35, peak: 26216.05, drawdownPercent: -8.47, pe: 20.49, peTtm: 20.49, isDrawdownAlert: false, isPeAlert: false },
+    { date: '2024-11-20', close: 23518.50, peak: 26216.05, drawdownPercent: -10.29, pe: 20.09, peTtm: 20.09, isDrawdownAlert: false, isPeAlert: false },
+    { date: '2024-12-20', close: 23812.80, peak: 26216.05, drawdownPercent: -9.17, pe: 20.34, peTtm: 20.34, isDrawdownAlert: false, isPeAlert: false },
+    { date: '2025-01-15', close: 23205.10, peak: 26216.05, drawdownPercent: -11.49, pe: 19.82, peTtm: 19.82, isDrawdownAlert: false, isPeAlert: true },
+    { date: '2025-02-05', close: 22850.40, peak: 26216.05, drawdownPercent: -12.84, pe: 19.52, peTtm: 19.52, isDrawdownAlert: false, isPeAlert: true },
+    { date: '2025-02-28', close: 22179.90, peak: 26216.05, drawdownPercent: -15.39, pe: 18.94, peTtm: 18.94, isDrawdownAlert: true, isPeAlert: true },
+    { date: '2025-03-15', close: 22622.70, peak: 26216.05, drawdownPercent: -13.71, pe: 19.32, peTtm: 19.32, isDrawdownAlert: false, isPeAlert: true },
+    { date: '2025-03-25', close: 22997.35, peak: 26216.05, drawdownPercent: -12.28, pe: 19.64, peTtm: 19.64, isDrawdownAlert: false, isPeAlert: true },
+    { date: '2026-10-16', close: 23146.15, peak: 26216.05, drawdownPercent: -11.71, pe: 19.77, peTtm: 19.77, isDrawdownAlert: false, isPeAlert: true }
   ]
 };
 

@@ -6,7 +6,6 @@ import {
   PieChart as PieIcon, 
   ArrowUpRight, 
   ArrowDownRight, 
-  Layers, 
   Sparkles, 
   Zap, 
   ChevronRight,
@@ -170,141 +169,101 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
         <PortfolioGrowthChart transactions={transactions} holdings={holdings} summary={summary} />
       </div>
 
-      {/* 2-Column Split: Top Holdings Performance vs Allocation */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Cols: Holdings Quick Matrix */}
-        <div className="lg:col-span-2 bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Layers className="w-4 h-4 text-emerald-400" />
-                Active Mutual Fund Holdings ({holdings.length})
-              </h3>
-              <p className="text-xs text-neutral-400 mt-0.5">Quick glance at your largest allocations and returns</p>
-            </div>
-            <button
-              onClick={() => onNavigateTab('holdings')}
-              className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer"
-            >
-              <span>View All</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="divide-y divide-neutral-800/80">
-            {holdings.slice(0, 4).map((holding) => {
-              const isHoldingProfit = holding.totalGain >= 0;
-              return (
-                <div 
-                  key={`${holding.schemeCode}_${holding.folioNumber}`}
-                  onClick={() => onNavigateTab('holdings')}
-                  className="py-3 flex items-center justify-between gap-4 hover:bg-neutral-800/30 px-2 rounded-xl transition cursor-pointer"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="font-semibold text-xs text-neutral-200 truncate">
-                      {holding.schemeName}
-                    </div>
-                    <div className="flex items-center gap-2 text-[11px] text-neutral-400 mt-0.5">
-                      <span>{holding.category}</span>
-                      <span>•</span>
-                      <span>Weight: <strong className="text-neutral-300">{holding.allocationPercentage.toFixed(1)}%</strong></span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4 shrink-0 font-mono">
-                    <div className="text-right">
-                      <div className="text-xs font-bold text-white">
-                        <PrivacyValue value={formatINR(holding.currentValue)} />
-                      </div>
-                      <div className="text-[11px] text-neutral-400">
-                        Inv: <PrivacyValue value={formatINR(holding.investedAmount, true)} />
-                      </div>
-                    </div>
-
-                    <div className="w-24 text-right">
-                      <div className={`text-xs font-bold ${isHoldingProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {isHoldingProfit ? '+' : ''}{holding.totalGainPercentage.toFixed(1)}%
-                      </div>
-                      <div className="text-[11px] text-teal-400 font-medium">
-                        XIRR: {holding.xirr > 0 ? `+${holding.xirr.toFixed(1)}%` : `${holding.xirr.toFixed(1)}%`}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {holdings.length > 4 && (
-            <div className="mt-3 text-center">
-              <button
-                onClick={() => onNavigateTab('holdings')}
-                className="text-xs text-neutral-400 hover:text-neutral-200 py-1 font-medium cursor-pointer"
-              >
-                + {holdings.length - 4} more funds in your portfolio. Click to view all.
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Right 1 Col: Asset Class & Market Cap Distribution */}
-        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between space-y-6">
-          {/* Asset Allocation */}
+      {/* Asset Allocation & Category Distribution Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left Col: Asset Class Split */}
+        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between space-y-5">
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <PieIcon className="w-4 h-4 text-emerald-400" />
-                Asset Class Split
+                Asset Class Split &amp; Diversification
               </h3>
               <button
                 onClick={() => onNavigateTab('insights')}
-                className="text-xs font-medium text-neutral-400 hover:text-white flex items-center gap-1 cursor-pointer"
+                className="text-xs font-medium text-neutral-400 hover:text-white flex items-center gap-1 cursor-pointer transition"
               >
-                Insights <ChevronRight className="w-3 h-3" />
+                Insights <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>
+            <p className="text-xs text-neutral-400 mb-4">
+              Macro portfolio distribution across equity, debt instruments, hybrid, and defensive hedges.
+            </p>
 
             {/* Visual multi-segmented bar */}
-            <div className="h-3 rounded-full bg-neutral-800 overflow-hidden flex mb-3">
-              <div style={{ width: `${assetAllocation.equity}%` }} className="bg-emerald-500 h-full" title={`Equity: ${assetAllocation.equity.toFixed(1)}%`} />
-              <div style={{ width: `${assetAllocation.debt}%` }} className="bg-blue-500 h-full" title={`Debt: ${assetAllocation.debt.toFixed(1)}%`} />
-              <div style={{ width: `${assetAllocation.hybrid}%` }} className="bg-purple-500 h-full" title={`Hybrid: ${assetAllocation.hybrid.toFixed(1)}%`} />
-              <div style={{ width: `${assetAllocation.gold}%` }} className="bg-amber-400 h-full" title={`Gold / Commodities: ${assetAllocation.gold.toFixed(1)}%`} />
-              <div style={{ width: `${assetAllocation.cash}%` }} className="bg-cyan-500 h-full" title={`Liquid / Cash: ${assetAllocation.cash.toFixed(1)}%`} />
+            <div className="h-3.5 rounded-full bg-neutral-800 overflow-hidden flex mb-4 shadow-inner">
+              <div style={{ width: `${assetAllocation.equity}%` }} className="bg-emerald-500 h-full transition-all duration-500" title={`Equity: ${assetAllocation.equity.toFixed(1)}%`} />
+              <div style={{ width: `${assetAllocation.debt}%` }} className="bg-blue-500 h-full transition-all duration-500" title={`Debt: ${assetAllocation.debt.toFixed(1)}%`} />
+              <div style={{ width: `${assetAllocation.hybrid}%` }} className="bg-purple-500 h-full transition-all duration-500" title={`Hybrid: ${assetAllocation.hybrid.toFixed(1)}%`} />
+              <div style={{ width: `${assetAllocation.gold}%` }} className="bg-amber-400 h-full transition-all duration-500" title={`Gold / Commodities: ${assetAllocation.gold.toFixed(1)}%`} />
+              <div style={{ width: `${assetAllocation.cash}%` }} className="bg-cyan-500 h-full transition-all duration-500" title={`Liquid / Cash: ${assetAllocation.cash.toFixed(1)}%`} />
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="flex items-center justify-between p-2 rounded-lg bg-neutral-800/40 border border-neutral-800">
-                <span className="flex items-center gap-1.5 text-neutral-400">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+              <div className="p-2.5 rounded-xl bg-neutral-800/40 border border-neutral-800">
+                <span className="flex items-center gap-1.5 text-neutral-400 text-[11px] mb-1">
                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Equity
                 </span>
-                <span className="font-semibold text-white">{assetAllocation.equity.toFixed(1)}%</span>
+                <span className="font-bold text-white text-sm font-mono">{assetAllocation.equity.toFixed(1)}%</span>
               </div>
-              <div className="flex items-center justify-between p-2 rounded-lg bg-neutral-800/40 border border-neutral-800">
-                <span className="flex items-center gap-1.5 text-neutral-400">
+              <div className="p-2.5 rounded-xl bg-neutral-800/40 border border-neutral-800">
+                <span className="flex items-center gap-1.5 text-neutral-400 text-[11px] mb-1">
                   <span className="w-2 h-2 rounded-full bg-blue-500"></span> Debt
                 </span>
-                <span className="font-semibold text-white">{assetAllocation.debt.toFixed(1)}%</span>
+                <span className="font-bold text-white text-sm font-mono">{assetAllocation.debt.toFixed(1)}%</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-neutral-800/40 border border-neutral-800">
+                <span className="flex items-center gap-1.5 text-neutral-400 text-[11px] mb-1">
+                  <span className="w-2 h-2 rounded-full bg-purple-500"></span> Hybrid
+                </span>
+                <span className="font-bold text-white text-sm font-mono">{assetAllocation.hybrid.toFixed(1)}%</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-neutral-800/40 border border-neutral-800">
+                <span className="flex items-center gap-1.5 text-neutral-400 text-[11px] mb-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-400"></span> Gold / Cash
+                </span>
+                <span className="font-bold text-white text-sm font-mono">{(assetAllocation.gold + assetAllocation.cash).toFixed(1)}%</span>
               </div>
             </div>
           </div>
 
-          {/* Scheme Category Distribution */}
-          <div className="border-t border-neutral-800 pt-4">
-            <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider mb-2.5">
-              Top Category Exposures
-            </h4>
-            <div className="space-y-2 text-xs">
+          <div className="pt-2 border-t border-neutral-800 flex items-center justify-between text-xs text-neutral-400">
+            <span>Detailed holdings analysis &amp; folio records:</span>
+            <button
+              onClick={() => onNavigateTab('holdings')}
+              className="text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1 cursor-pointer transition"
+            >
+              <span>View Holdings ({holdings.length})</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Right Col: Top Category Exposures & Quick Actions */}
+        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between space-y-5">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-emerald-400" />
+                Top Category Exposures
+              </h3>
+              <span className="text-[11px] text-neutral-500 font-mono">SEBI Categorization</span>
+            </div>
+            <p className="text-xs text-neutral-400 mb-4">
+              Breakdown of capital concentration across market-cap and theme categories.
+            </p>
+
+            <div className="space-y-2.5 text-xs">
               {categoryAllocations.length > 0 ? (
                 categoryAllocations.map((cat, idx) => (
                   <div key={idx}>
                     <div className="flex justify-between text-neutral-400 mb-1">
-                      <span className="truncate max-w-[140px]" title={cat.category}>{cat.category}</span>
-                      <span className="font-semibold text-neutral-200">{cat.percentage.toFixed(1)}%</span>
+                      <span className="truncate max-w-[200px] font-medium text-neutral-300" title={cat.category}>{cat.category}</span>
+                      <span className="font-semibold text-neutral-200 font-mono">{cat.percentage.toFixed(1)}%</span>
                     </div>
                     <div className="w-full h-1.5 rounded-full bg-neutral-800 overflow-hidden">
                       <div 
-                        className={`h-full rounded-full ${
+                        className={`h-full rounded-full transition-all duration-500 ${
                           idx === 0 ? 'bg-emerald-500' : idx === 1 ? 'bg-teal-500' : idx === 2 ? 'bg-indigo-500' : 'bg-amber-500'
                         }`} 
                         style={{ width: `${Math.min(cat.percentage, 100)}%` }}
@@ -313,16 +272,16 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
                   </div>
                 ))
               ) : (
-                <div className="text-neutral-500 text-xs py-2">No holdings recorded yet</div>
+                <div className="text-neutral-500 text-xs py-3 text-center">No active fund categories recorded yet</div>
               )}
             </div>
           </div>
 
-          {/* Quick Action Buttons Card */}
+          {/* Quick Action Banner */}
           <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-3 text-xs text-neutral-300 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Import CAMS / KFintech Statement</span>
+              <span>Import CAMS / KFintech Consolidated Statement (CAS)</span>
             </div>
             <button
               onClick={onOpenImport}

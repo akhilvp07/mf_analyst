@@ -57,13 +57,13 @@ export const MarketOpportunityBanner: React.FC<MarketOpportunityBannerProps> = (
               </div>
               <h3 className="text-base font-bold text-white mt-0.5">
                 {isDrawdownActive && isPeActive 
-                  ? 'Double Opportunity: Nifty Drawdown &ge; 15% and PE &lt; 20 Triggered'
+                  ? 'Double Opportunity: Nifty Drawdown &ge; 15% and P/E (TTM) &lt; 20 Triggered'
                   : isDrawdownActive
                   ? `Nifty 50 has closed ${percentDrop.toFixed(2)}% below its all-time peak`
-                  : `Nifty PE has closed at ${currentPe.toFixed(2)} (< 20.0 Deep Value)`}
+                  : `Nifty P/E Ratio (TTM) has closed at ${currentPe.toFixed(2)} (< 20.0 Deep Value)`}
               </h3>
               <p className="text-xs text-neutral-300 mt-1 leading-relaxed">
-                Nifty 50 closed at <strong className="text-white font-mono">₹{closePrice.toLocaleString('en-IN')}</strong> ({pointDrop.toLocaleString('en-IN')} pt drop from peak of ₹{peakPrice.toLocaleString('en-IN')}). Nifty P/E is at <strong className="text-white font-mono">{currentPe.toFixed(2)}x</strong>. Historic risk-reward heavily favors deploying fresh capital.
+                Nifty 50 closed at <strong className="text-white font-mono">₹{closePrice.toLocaleString('en-IN')}</strong> ({pointDrop.toLocaleString('en-IN')} pt drop from peak of ₹{peakPrice.toLocaleString('en-IN')}). Nifty P/E (TTM) is at <strong className="text-white font-mono">{currentPe.toFixed(2)}x</strong>. Historic risk-reward heavily favors deploying fresh capital.
               </p>
             </div>
           </div>
@@ -71,14 +71,14 @@ export const MarketOpportunityBanner: React.FC<MarketOpportunityBannerProps> = (
           <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
             <button
               onClick={onNavigateToMarket}
-              className="px-4 py-2 text-xs font-semibold rounded-xl bg-rose-500 hover:bg-rose-400 text-white shadow-md transition-colors flex items-center gap-1.5"
+              className="px-4 py-2 text-xs font-semibold rounded-xl bg-rose-500 hover:bg-rose-400 text-white shadow-md transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <span>View Deployment Plan</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => setIsDismissed(true)}
-              className="p-1.5 text-neutral-400 hover:text-white rounded-lg hover:bg-neutral-800 transition-colors"
+              className="p-1.5 text-neutral-400 hover:text-white rounded-lg hover:bg-neutral-800 transition-colors cursor-pointer"
               title="Dismiss banner"
             >
               <X className="w-4 h-4" />
@@ -100,7 +100,7 @@ export const MarketOpportunityBanner: React.FC<MarketOpportunityBannerProps> = (
           <span className="text-neutral-500">·</span>
           <span>Drawdown: <strong className="text-amber-400 font-mono">-{percentDrop.toFixed(2)}%</strong> (15% buy trigger at ₹{marketData.triggerLevel15Percent.toLocaleString('en-IN')})</span>
           <span className="text-neutral-500">·</span>
-          <span>P/E: <strong className="text-cyan-300 font-mono">{currentPe.toFixed(2)}x</strong> (Value trigger: &lt; 20.00)</span>
+          <span>P/E (TTM): <strong className="text-cyan-300 font-mono">{currentPe.toFixed(2)}x</strong> (Value trigger: &lt; 20.00)</span>
         </div>
       </div>
 
