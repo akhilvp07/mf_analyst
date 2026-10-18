@@ -9,7 +9,8 @@ import {
   Calculator,
   Target,
   Eye,
-  EyeOff
+  EyeOff,
+  Activity
 } from 'lucide-react';
 import { formatINR } from '../utils/financialCalculations';
 import { PortfolioSummary } from '../types';
@@ -18,6 +19,7 @@ import { usePrivacy, PrivacyValue } from '../context/PrivacyContext';
 export type ActiveTab = 
   | 'overview' 
   | 'holdings' 
+  | 'market'
   | 'transactions' 
   | 'goals'
   | 'insights' 
@@ -47,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   const navItems = [
     { id: 'overview' as ActiveTab, label: 'Dashboard', icon: TrendingUp },
     { id: 'holdings' as ActiveTab, label: 'Holdings', icon: Layers, badge: summary.holdingsCount },
+    { id: 'market' as ActiveTab, label: 'Market Opportunities', icon: Activity },
     { id: 'transactions' as ActiveTab, label: 'Ledger', icon: Receipt, badge: summary.transactionsCount },
     { id: 'goals' as ActiveTab, label: 'Goal Buckets & Glidepath', icon: Target },
     { id: 'insights' as ActiveTab, label: 'Asset Allocation', icon: PieChart },

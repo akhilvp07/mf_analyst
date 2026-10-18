@@ -8,6 +8,7 @@ import { GoalTracker } from './components/GoalTracker';
 import { TaxCalculator } from './components/TaxCalculator';
 import { SipSimulator } from './components/SipSimulator';
 import { CasImporter } from './components/CasImporter';
+import { MarketAnalysis } from './components/MarketAnalysis';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 import { PrivacyProvider } from './context/PrivacyContext';
 
@@ -375,10 +376,21 @@ export default function App() {
               <HoldingsTable
                 holdings={holdings}
                 transactions={transactions}
+                summary={summary}
                 onViewTransactions={handleViewSchemeLedger}
                 onSyncSingleNav={handleSyncSingleNav}
                 onSyncAllNavs={handleSyncAllNavs}
                 isSyncingNavs={isSyncingNavs}
+                onNavigateToMarket={() => handleTabChange('market')}
+              />
+            </div>
+          )}
+
+          {visitedTabs.has('market') && (
+            <div className={activeTab === 'market' ? 'block' : 'hidden'}>
+              <MarketAnalysis
+                summary={summary}
+                onNavigateToHoldings={() => handleTabChange('holdings')}
               />
             </div>
           )}

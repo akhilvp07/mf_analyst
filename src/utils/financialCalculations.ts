@@ -1263,35 +1263,61 @@ export const NIFTY_50_ANCHORS: [string, number][] = [
   ['2026-06-30', 25180],
   ['2026-08-31', 25280],
   ['2026-09-01', 25300],
-  ['2026-09-30', 25810],
-  ['2026-10-06', 25014]
+  ['2026-09-18', 25400],
+  ['2026-09-27', 26216],
+  ['2026-10-06', 24072],
+  ['2026-10-16', 23146.15],
+  ['2026-10-18', 23146.15]
 ];
 
-const PARSED_NIFTY_50_ANCHORS = NIFTY_50_ANCHORS.map(([d, val]) => ({
+let parsedNifty50Anchors = NIFTY_50_ANCHORS.map(([d, val]) => ({
   time: new Date(`${d}T00:00:00Z`).getTime(),
   val
 }));
+
+let latestDynamicNiftyAnchor: { time: number; val: number } = {
+  time: new Date('2026-10-18T10:00:00Z').getTime(),
+  val: 23146.15
+};
+
+/**
+ * Dynamically updates latest Nifty 50 closing level from live API feeds
+ */
+export function updateLatestNiftyAnchor(price: number, dateStr?: string): void {
+  if (price > 0) {
+    const t = dateStr ? new Date(dateStr).getTime() : Date.now();
+    latestDynamicNiftyAnchor = { time: t, val: price };
+    // Check if anchor exists or append
+    const last = parsedNifty50Anchors[parsedNifty50Anchors.length - 1];
+    if (Math.abs(last.time - t) < 86400000 * 2) {
+      last.val = price;
+    } else {
+      parsedNifty50Anchors.push({ time: t, val: price });
+      parsedNifty50Anchors.sort((a, b) => a.time - b.time);
+    }
+  }
+}
 
 /**
  * Returns interpolated Nifty 50 index level for any given date or timestamp
  */
 export function getNifty50Level(dateOrTime: Date | number): number {
   const time = typeof dateOrTime === 'number' ? dateOrTime : dateOrTime.getTime();
-  const len = PARSED_NIFTY_50_ANCHORS.length;
+  const len = parsedNifty50Anchors.length;
 
-  if (time <= PARSED_NIFTY_50_ANCHORS[0].time) return PARSED_NIFTY_50_ANCHORS[0].val;
-  if (time >= PARSED_NIFTY_50_ANCHORS[len - 1].time) return PARSED_NIFTY_50_ANCHORS[len - 1].val;
+  if (time <= parsedNifty50Anchors[0].time) return parsedNifty50Anchors[0].val;
+  if (time >= parsedNifty50Anchors[len - 1].time) return parsedNifty50Anchors[len - 1].val;
 
   for (let i = 0; i < len - 1; i++) {
-    const a1 = PARSED_NIFTY_50_ANCHORS[i];
-    const a2 = PARSED_NIFTY_50_ANCHORS[i + 1];
+    const a1 = parsedNifty50Anchors[i];
+    const a2 = parsedNifty50Anchors[i + 1];
     if (time >= a1.time && time <= a2.time) {
       if (a2.time === a1.time) return a1.val;
       const fraction = (time - a1.time) / (a2.time - a1.time);
       return a1.val + fraction * (a2.val - a1.val);
     }
   }
-  return 25014;
+  return latestDynamicNiftyAnchor.val || 23146.15;
 }
 
 /**
@@ -1648,6 +1674,211 @@ export function computeHistoricalPortfolioGrowth(
   portfolioGrowthCache.set(cacheKey, points);
 
   return points;
+}
+
+export interface PeriodBenchmarkPerformance {
+  timeframe: '1M' | '6M' | '1Y' | '3Y' | 'ALL';
+  periodDurationYears: number;
+  timeframeDescription: string;
+  // Portfolio
+  portfolioGain: number;
+  capitalAdded: number;
+  portfolioReturnPct: number;
+  portfolioReturnLabel: string;
+  portfolioMetricType: 'CAGR' | 'XIRR' | 'Absolute';
+  startNetWorth: number;
+  endNetWorth: number;
+  // Benchmark (Nifty 50)
+  niftyReturnPct: number;
+  niftyReturnLabel: string;
+  niftyMetricType: 'CAGR' | 'Absolute';
+  niftyStartLevel: number;
+  niftyEndLevel: number;
+  niftyPointChange: number;
+  // Alpha
+  alphaPct: number;
+  alphaLabel: string;
+  isOutperforming: boolean;
+}
+
+/**
+ * Computes authentic CAGR or XIRR rate of returns for any period,
+ * alongside real Nifty 50 Index performance and point changes.
+ */
+export function computePeriodReturnMetrics(
+  timeframe: '1M' | '6M' | '1Y' | '3Y' | 'ALL',
+  chartData: GrowthDataPoint[],
+  transactions: TransactionRecord[] = [],
+  summary: PortfolioSummary,
+  holdings: PortfolioHolding[] = []
+): PeriodBenchmarkPerformance {
+  const now = new Date();
+  const nowTime = now.getTime();
+  const endPoint = chartData && chartData.length > 0 ? chartData[chartData.length - 1] : null;
+  const currentNetWorth = summary.totalCurrentValue || (endPoint?.netWorth ?? 0);
+
+  // 1. Calculate timeframe start timestamp & years
+  let startTime = nowTime - 1095 * 86400000;
+  let timeframeDescription = 'Past 3 Years';
+
+  if (timeframe === '1M') {
+    startTime = nowTime - 30 * 86400000;
+    timeframeDescription = 'Past 30 Days';
+  } else if (timeframe === '6M') {
+    startTime = nowTime - 180 * 86400000;
+    timeframeDescription = 'Past 6 Months';
+  } else if (timeframe === '1Y') {
+    startTime = nowTime - 365 * 86400000;
+    timeframeDescription = 'Past 1 Year';
+  } else if (timeframe === '3Y') {
+    startTime = nowTime - 1095 * 86400000;
+    timeframeDescription = 'Past 3 Years';
+  } else if (timeframe === 'ALL') {
+    timeframeDescription = 'Since Inception';
+    const validTxs = (transactions || []).filter(t => t.status !== 'FAILED');
+    if (validTxs.length > 0) {
+      const times = validTxs.map(t => new Date(t.date).getTime()).filter(t => !isNaN(t));
+      startTime = Math.min(...times);
+    } else {
+      startTime = nowTime - 1095 * 86400000;
+    }
+  }
+
+  const durationYears = Math.max(0.08, (nowTime - startTime) / (365.25 * 86400000));
+
+  // 2. Real Nifty 50 Return from authentic index levels
+  const niftyStartLevel = getNifty50Level(startTime);
+  const niftyEndLevel = getNifty50Level(nowTime);
+  const niftyPointChange = niftyEndLevel - niftyStartLevel;
+  const niftyAbsPct = niftyStartLevel > 0 ? (niftyPointChange / niftyStartLevel) * 100 : 0;
+
+  let niftyReturnPct = 0;
+  let niftyMetricType: 'CAGR' | 'Absolute' = 'CAGR';
+  let niftyReturnLabel = '';
+
+  if (timeframe === 'ALL' || timeframe === '3Y' || timeframe === '1Y') {
+    niftyMetricType = 'CAGR';
+    if (niftyStartLevel > 0 && durationYears > 0) {
+      niftyReturnPct = (Math.pow(niftyEndLevel / niftyStartLevel, 1 / durationYears) - 1) * 100;
+    } else {
+      niftyReturnPct = niftyAbsPct;
+    }
+    niftyReturnLabel = `${niftyReturnPct >= 0 ? '+' : ''}${niftyReturnPct.toFixed(1)}% p.a. (CAGR)`;
+  } else {
+    // 1M and 6M (< 1 year)
+    niftyMetricType = 'Absolute';
+    niftyReturnPct = niftyAbsPct;
+    const niftyAnnualized = (Math.pow(1 + Math.max(-0.95, niftyAbsPct / 100), 1 / durationYears) - 1) * 100;
+    niftyReturnLabel = `${niftyReturnPct >= 0 ? '+' : ''}${niftyReturnPct.toFixed(1)}% abs (${niftyAnnualized >= 0 ? '+' : ''}${niftyAnnualized.toFixed(1)}% p.a. CAGR)`;
+  }
+
+  // 3. Portfolio Return (CAGR / XIRR)
+  let startNetWorth = 0;
+  let startInvested = 0;
+  let capitalAdded = 0;
+  let portfolioGain = 0;
+  let portfolioReturnPct = 0;
+  let portfolioMetricType: 'CAGR' | 'XIRR' | 'Absolute' = 'XIRR';
+  let portfolioReturnLabel = '';
+
+  if (chartData && chartData.length > 0) {
+    const firstActive = chartData.find(d => d.netWorth > 0) || chartData[0];
+    startNetWorth = firstActive.netWorth;
+    startInvested = firstActive.invested;
+    const endInvested = endPoint?.invested || summary.totalInvestedAmount;
+    capitalAdded = Math.max(0, endInvested - startInvested);
+  }
+
+  if (timeframe === 'ALL') {
+    portfolioMetricType = 'XIRR';
+    portfolioReturnPct = Number.isFinite(summary.xirr) && summary.xirr !== 0 ? summary.xirr : 0;
+    if (portfolioReturnPct === 0 && summary.totalInvestedAmount > 0 && currentNetWorth > 0) {
+      portfolioReturnPct = (Math.pow(currentNetWorth / summary.totalInvestedAmount, 1 / durationYears) - 1) * 100;
+      portfolioMetricType = 'CAGR';
+    }
+    portfolioGain = summary.totalGain;
+    capitalAdded = summary.totalInvestedAmount;
+    portfolioReturnLabel = `${portfolioReturnPct >= 0 ? '+' : ''}${portfolioReturnPct.toFixed(1)}% p.a. (${portfolioMetricType})`;
+  } else if (timeframe === '3Y' || timeframe === '1Y') {
+    portfolioMetricType = 'XIRR';
+    const periodCashflows: { date: Date; amount: number }[] = [];
+    if (startNetWorth > 0) {
+      periodCashflows.push({ date: new Date(startTime), amount: -startNetWorth });
+    }
+
+    const periodTxs = (transactions || []).filter(t => {
+      if (t.status === 'FAILED') return false;
+      const tTime = new Date(t.date).getTime();
+      return tTime > startTime && tTime <= nowTime;
+    });
+
+    periodTxs.forEach(t => {
+      const isRedemption = (t.type || '').toUpperCase().includes('REDEMPT') || (t.type || '').toUpperCase().includes('SELL');
+      const amt = Math.abs(t.amount || 0);
+      if (amt > 0) {
+        periodCashflows.push({
+          date: new Date(t.date),
+          amount: isRedemption ? amt : -amt
+        });
+      }
+    });
+
+    if (currentNetWorth > 0) {
+      periodCashflows.push({ date: now, amount: currentNetWorth });
+    }
+
+    const calculatedPeriodXirr = calculateXirr(periodCashflows);
+    if (calculatedPeriodXirr !== 0 && calculatedPeriodXirr > -80 && calculatedPeriodXirr < 250) {
+      portfolioReturnPct = calculatedPeriodXirr;
+      portfolioReturnLabel = `${portfolioReturnPct >= 0 ? '+' : ''}${portfolioReturnPct.toFixed(1)}% p.a. (XIRR)`;
+    } else {
+      const baseCapital = Math.max(1, startNetWorth + capitalAdded * 0.5);
+      const gain = currentNetWorth - startNetWorth - capitalAdded;
+      const dietzReturn = gain / baseCapital;
+      const cagr = (Math.pow(Math.max(0.01, 1 + dietzReturn), 1 / durationYears) - 1) * 100;
+      portfolioReturnPct = cagr;
+      portfolioMetricType = 'CAGR';
+      portfolioReturnLabel = `${portfolioReturnPct >= 0 ? '+' : ''}${portfolioReturnPct.toFixed(1)}% p.a. (CAGR)`;
+    }
+
+    portfolioGain = (currentNetWorth - startNetWorth) - capitalAdded;
+  } else {
+    // 1M and 6M (< 1 year)
+    portfolioGain = (currentNetWorth - startNetWorth) - capitalAdded;
+    const baseCapital = Math.max(1, startNetWorth + capitalAdded * 0.5);
+    const periodAbsPct = (portfolioGain / baseCapital) * 100;
+    const annualizedRate = (Math.pow(1 + Math.max(-0.95, periodAbsPct / 100), 1 / durationYears) - 1) * 100;
+    portfolioReturnPct = periodAbsPct;
+    portfolioMetricType = 'Absolute';
+    portfolioReturnLabel = `${periodAbsPct >= 0 ? '+' : ''}${periodAbsPct.toFixed(1)}% abs (${annualizedRate >= 0 ? '+' : ''}${annualizedRate.toFixed(1)}% p.a. XIRR)`;
+  }
+
+  // 4. Alpha vs Benchmark
+  const alphaPct = portfolioReturnPct - niftyReturnPct;
+  const isOutperforming = alphaPct >= 0;
+  const alphaLabel = `${alphaPct >= 0 ? '+' : ''}${alphaPct.toFixed(1)}%${(timeframe === 'ALL' || timeframe === '3Y' || timeframe === '1Y') ? ' p.a.' : ''}`;
+
+  return {
+    timeframe,
+    periodDurationYears: durationYears,
+    timeframeDescription,
+    portfolioGain,
+    capitalAdded,
+    portfolioReturnPct,
+    portfolioReturnLabel,
+    portfolioMetricType,
+    startNetWorth,
+    endNetWorth: currentNetWorth,
+    niftyReturnPct,
+    niftyReturnLabel,
+    niftyMetricType,
+    niftyStartLevel: Math.round(niftyStartLevel),
+    niftyEndLevel: Math.round(niftyEndLevel),
+    niftyPointChange: Math.round(niftyPointChange),
+    alphaPct,
+    alphaLabel,
+    isOutperforming
+  };
 }
 
 export interface MergeTransactionsResult {

@@ -6,25 +6,31 @@ import {
   Layers,
   ChevronRight
 } from 'lucide-react';
-import { PortfolioHolding, TransactionRecord } from '../types';
+import { PortfolioHolding, PortfolioSummary, TransactionRecord } from '../types';
 import { formatINR, formatNavDateDisplay, formatNavDateShort } from '../utils/financialCalculations';
 import { PrivacyValue } from '../context/PrivacyContext';
 import { HoldingDetailView } from './HoldingDetailView';
+import { MarketOpportunityBanner } from './MarketOpportunityBanner';
+import { PortfolioGrowthChart } from './PortfolioGrowthChart';
 
 interface HoldingsTableProps {
   holdings: PortfolioHolding[];
   transactions?: TransactionRecord[];
+  summary?: PortfolioSummary;
   onViewTransactions: (schemeCode: string) => void;
   onSyncSingleNav: (schemeCode: string, schemeName?: string, isin?: string) => Promise<any> | void;
   onSyncAllNavs?: () => void;
   isSyncingNavs?: boolean;
+  onNavigateToMarket?: () => void;
 }
 
 export const HoldingsTable: React.FC<HoldingsTableProps> = ({
   holdings,
   transactions = [],
+  summary,
   onViewTransactions,
-  onSyncSingleNav
+  onSyncSingleNav,
+  onNavigateToMarket
 }) => {
   const [syncingCode, setSyncingCode] = useState<string | null>(null);
   const [selectedHoldingKey, setSelectedHoldingKey] = useState<string | null>(null);
@@ -39,6 +45,32 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
     if (!selectedHoldingKey) return null;
     return holdings.find(h => `${h.schemeCode}_${h.folioNumber}` === selectedHoldingKey) || null;
   }, [holdings, selectedHoldingKey]);
+
+  // Effective summary for PortfolioGrowthChart
+  const effectiveSummary = useMemo<PortfolioSummary>(() => {
+    if (summary) return summary;
+    let totalInvested = 0;
+    let totalCurrent = 0;
+    holdings.forEach(h => {
+      totalInvested += h.investedAmount || 0;
+      totalCurrent += h.currentValue || 0;
+    });
+    const totalGain = totalCurrent - totalInvested;
+    const totalGainPct = totalInvested > 0 ? (totalGain / totalInvested) * 100 : 0;
+    return {
+      totalInvestedAmount: totalInvested,
+      totalCurrentValue: totalCurrent,
+      totalGain,
+      totalGainPercentage: totalGainPct,
+      dayGain: 0,
+      dayGainPercentage: 0,
+      holdingsCount: holdings.length,
+      folionsCount: holdings.length,
+      transactionsCount: transactions.length,
+      xirr: holdings[0]?.xirr || 0,
+      lastUpdated: new Date().toISOString()
+    };
+  }, [summary, holdings, transactions]);
 
   const handleSyncNav = async (schemeCode: string, schemeName?: string, isin?: string) => {
     setSyncingCode(schemeCode);
@@ -64,6 +96,32 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Market Opportunity & Valuation Buy Alert Banner */}
+      {onNavigateToMarket && (
+        <MarketOpportunityBanner onNavigateToMarket={onNavigateToMarket} />
+      )}
+
+      {/* Portfolio Growth & Benchmark Performance Section */}
+      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+          <div>
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-emerald-400" />
+              Portfolio Growth & Benchmark Performance
+            </h2>
+            <p className="text-xs text-neutral-400 mt-0.5">
+              Net worth trajectory compared against capital invested and authentic Nifty index returns (CAGR / XIRR).
+            </p>
+          </div>
+        </div>
+
+        <PortfolioGrowthChart 
+          transactions={transactions} 
+          holdings={holdings} 
+          summary={effectiveSummary} 
+        />
+      </div>
+
       {/* Mobile Card List View (Visible on small screens < md) */}
       <div className="block md:hidden space-y-3">
         {displayHoldings.length === 0 ? (

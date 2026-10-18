@@ -13,7 +13,8 @@ import {
   Info,
   X,
   Target,
-  BarChart3
+  BarChart3,
+  ArrowRight
 } from 'lucide-react';
 import { PortfolioHolding, PortfolioSummary, TransactionRecord } from '../types';
 import { formatINR, computeAssetAllocation, computeCategoryAllocation } from '../utils/financialCalculations';
@@ -410,13 +411,24 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
               </div>
             </div>
 
-            <div className="pt-1">
+            <div className="pt-1 flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBenchmarkModal(false);
+                  onNavigateTab('market');
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <span>View Market Opportunities &amp; PE Radar</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
               <button
                 type="button"
                 onClick={() => setShowBenchmarkModal(false)}
-                className="w-full py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white font-medium text-xs transition cursor-pointer"
+                className="px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-medium text-xs transition cursor-pointer"
               >
-                Got it
+                Close
               </button>
             </div>
           </div>

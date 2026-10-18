@@ -85,6 +85,42 @@ export interface PortfolioSummary {
   lastUpdated: string;
 }
 
+export interface NiftyHistoryPoint {
+  date: string;
+  close: number;
+  peak: number;
+  drawdownPercent: number;
+  pe: number;
+  isDrawdownAlert: boolean;
+  isPeAlert: boolean;
+}
+
+export interface NiftyMarketData {
+  symbol: string;
+  name: string;
+  currentClose: number;
+  previousClose: number;
+  change: number;
+  changePercent: number;
+  lastUpdated: string;
+  allTimePeak: number;
+  allTimePeakDate: string;
+  pointDropFromPeak: number;
+  percentDropFromPeak: number;
+  drawdownTriggerPercent: number;
+  isDrawdownAlertActive: boolean;
+  triggerLevel15Percent: number;
+  pointsTo15PercentTrigger: number;
+  currentPe: number;
+  peThreshold: number;
+  isPeAlertActive: boolean;
+  peZone: 'deep_value' | 'accumulation' | 'fair' | 'expensive';
+  historicalAveragePe: number;
+  pointsToPe20Threshold: number;
+  conciseSummary: string;
+  history: NiftyHistoryPoint[];
+}
+
 export interface AssetAllocation {
   equity: number;
   debt: number;

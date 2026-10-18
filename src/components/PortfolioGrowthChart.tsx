@@ -14,9 +14,12 @@ import {
   formatINR, 
   lttbDownsample, 
   computeHistoricalPortfolioGrowth, 
+  computePeriodReturnMetrics,
+  updateLatestNiftyAnchor,
   GrowthDataPoint 
 } from '../utils/financialCalculations';
-import { Zap, TrendingUp, ArrowUpRight, ArrowDownRight, Award } from 'lucide-react';
+import { Zap, TrendingUp, ArrowUpRight, ArrowDownRight, Award, Info } from 'lucide-react';
+import { fetchNiftyMarketData } from '../services/marketService';
 
 interface PortfolioGrowthChartProps {
   holdings: PortfolioHolding[];
@@ -34,6 +37,17 @@ export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({
   const [timeframe, setTimeframe] = useState<Timeframe>('3Y');
   const [showBenchmark, setShowBenchmark] = useState<boolean>(true);
   const [useLttb, setUseLttb] = useState<boolean>(true);
+
+  // Synchronize live Nifty 50 market close on mount
+  React.useEffect(() => {
+    fetchNiftyMarketData()
+      .then(data => {
+        if (data?.currentClose && data.currentClose > 0) {
+          updateLatestNiftyAnchor(data.currentClose, data.lastUpdated);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Compute physically exact historical portfolio growth time series
   const rawChartData = useMemo(() => {
@@ -68,34 +82,10 @@ export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({
     return rawChartData.filter(d => sampledXSet.has(d.x));
   }, [rawChartData, useLttb]);
 
-  // Period performance metrics
+  // Period performance metrics calculated with authentic CAGR / XIRR and real Nifty 50 index levels
   const periodMetrics = useMemo(() => {
-    if (!chartData || chartData.length < 2) {
-      return {
-        portfolioGain: 0,
-        portfolioGainPct: 0,
-        niftyGainPct: 0,
-        capitalAdded: 0,
-        alpha: 0
-      };
-    }
-    const start = chartData[0];
-    const end = chartData[chartData.length - 1];
-
-    const portfolioGain = end.netWorth - start.netWorth;
-    const portfolioGainPct = start.netWorth > 0 ? ((end.netWorth - start.netWorth) / start.netWorth) * 100 : 0;
-    const niftyGainPct = start.nifty50 > 0 ? ((end.nifty50 - start.nifty50) / start.nifty50) * 100 : 0;
-    const capitalAdded = end.invested - start.invested;
-    const alpha = portfolioGainPct - niftyGainPct;
-
-    return {
-      portfolioGain,
-      portfolioGainPct,
-      niftyGainPct,
-      capitalAdded,
-      alpha
-    };
-  }, [chartData]);
+    return computePeriodReturnMetrics(timeframe, chartData, transactions, summary, holdings);
+  }, [timeframe, chartData, transactions, summary, holdings]);
 
   return (
     <div className="space-y-4">
@@ -150,32 +140,73 @@ export const PortfolioGrowthChart: React.FC<PortfolioGrowthChartProps> = ({
         </div>
       </div>
 
-      {/* Period Quick Insight Badges */}
+      {/* Period Performance Metrics (CAGR, XIRR & Authentic Benchmark Return) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
-        <div className="bg-neutral-800/40 border border-neutral-800 rounded-xl px-3 py-2 text-xs">
-          <span className="text-neutral-400 block text-[11px]">Period Growth</span>
-          <span className={`font-semibold font-mono ${periodMetrics.portfolioGain >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {periodMetrics.portfolioGain >= 0 ? '+' : ''}{formatINR(periodMetrics.portfolioGain)} ({periodMetrics.portfolioGainPct >= 0 ? '+' : ''}{periodMetrics.portfolioGainPct.toFixed(1)}%)
-          </span>
+        {/* Card 1: Portfolio Return (CAGR / XIRR) */}
+        <div className="bg-neutral-800/40 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs">
+          <div className="flex items-center justify-between text-neutral-400 mb-1">
+            <span className="text-[11px] font-medium">Portfolio Return ({timeframe})</span>
+            <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-emerald-950/70 border border-emerald-800/80 text-emerald-400">
+              {periodMetrics.portfolioMetricType}
+            </span>
+          </div>
+          <div className={`text-sm sm:text-base font-bold font-mono ${periodMetrics.portfolioReturnPct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {periodMetrics.portfolioReturnLabel}
+          </div>
+          <div className="text-[11px] text-neutral-400 mt-1 flex items-center justify-between">
+            <span>Period Gain: <strong className={`font-mono ${periodMetrics.portfolioGain >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{periodMetrics.portfolioGain >= 0 ? '+' : ''}{formatINR(periodMetrics.portfolioGain)}</strong></span>
+          </div>
         </div>
-        <div className="bg-neutral-800/40 border border-neutral-800 rounded-xl px-3 py-2 text-xs">
-          <span className="text-neutral-400 block text-[11px]">Capital Added ({timeframe})</span>
-          <span className="font-semibold text-neutral-200 font-mono">
+
+        {/* Card 2: Capital Injected */}
+        <div className="bg-neutral-800/40 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs">
+          <div className="flex items-center justify-between text-neutral-400 mb-1">
+            <span className="text-[11px] font-medium">Capital Invested</span>
+            <span className="text-[10px] text-neutral-500 font-mono">
+              {periodMetrics.timeframeDescription}
+            </span>
+          </div>
+          <div className="text-sm sm:text-base font-bold text-neutral-200 font-mono">
             +{formatINR(Math.max(0, periodMetrics.capitalAdded))}
-          </span>
+          </div>
+          <div className="text-[11px] text-neutral-400 mt-1 flex items-center justify-between">
+            <span>End Net Worth: <strong className="font-mono text-neutral-200">{formatINR(periodMetrics.endNetWorth)}</strong></span>
+          </div>
         </div>
-        <div className="bg-neutral-800/40 border border-neutral-800 rounded-xl px-3 py-2 text-xs">
-          <span className="text-neutral-400 block text-[11px]">Nifty 50 Return</span>
-          <span className={`font-semibold font-mono ${periodMetrics.niftyGainPct >= 0 ? 'text-teal-400' : 'text-rose-400'}`}>
-            {periodMetrics.niftyGainPct >= 0 ? '+' : ''}{periodMetrics.niftyGainPct.toFixed(1)}%
-          </span>
+
+        {/* Card 3: Nifty 50 Return (Real Index Values) */}
+        <div className="bg-neutral-800/40 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs">
+          <div className="flex items-center justify-between text-neutral-400 mb-1">
+            <span className="text-[11px] font-medium">Nifty 50 Return ({timeframe})</span>
+            <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-teal-950/70 border border-teal-800/80 text-teal-300">
+              {periodMetrics.niftyMetricType}
+            </span>
+          </div>
+          <div className={`text-sm sm:text-base font-bold font-mono ${periodMetrics.niftyReturnPct >= 0 ? 'text-teal-400' : 'text-rose-400'}`}>
+            {periodMetrics.niftyReturnLabel}
+          </div>
+          <div className="text-[11px] text-neutral-400 mt-1 flex items-center justify-between">
+            <span>Index: <strong className="font-mono text-neutral-300">{periodMetrics.niftyStartLevel.toLocaleString('en-IN')} → {periodMetrics.niftyEndLevel.toLocaleString('en-IN')}</strong></span>
+            <span className={`font-mono text-[10px] ${periodMetrics.niftyPointChange >= 0 ? 'text-teal-400' : 'text-rose-400'}`}>
+              ({periodMetrics.niftyPointChange >= 0 ? '+' : ''}{periodMetrics.niftyPointChange.toLocaleString('en-IN')} pts)
+            </span>
+          </div>
         </div>
-        <div className="bg-neutral-800/40 border border-neutral-800 rounded-xl px-3 py-2 text-xs">
-          <span className="text-neutral-400 block text-[11px]">Period Alpha vs Index</span>
-          <span className={`font-semibold font-mono flex items-center gap-1 ${periodMetrics.alpha >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
-            <Award className="w-3 h-3 shrink-0" />
-            {periodMetrics.alpha >= 0 ? '+' : ''}{periodMetrics.alpha.toFixed(1)}%
-          </span>
+
+        {/* Card 4: Alpha vs Index */}
+        <div className="bg-neutral-800/40 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs">
+          <div className="flex items-center justify-between text-neutral-400 mb-1">
+            <span className="text-[11px] font-medium">Alpha vs Index ({timeframe})</span>
+            <Award className={`w-3.5 h-3.5 ${periodMetrics.isOutperforming ? 'text-emerald-400' : 'text-amber-400'}`} />
+          </div>
+          <div className={`text-sm sm:text-base font-bold font-mono flex items-center gap-1.5 ${periodMetrics.isOutperforming ? 'text-emerald-400' : 'text-amber-400'}`}>
+            {periodMetrics.alphaLabel}
+          </div>
+          <div className="text-[11px] text-neutral-400 mt-1 flex items-center justify-between">
+            <span className={periodMetrics.isOutperforming ? 'text-emerald-400 font-medium' : 'text-amber-400 font-medium'}>
+              {periodMetrics.isOutperforming ? 'Outperforming Benchmark' : 'Underperforming Benchmark'}
+            </span>
+          </div>
         </div>
       </div>
 
