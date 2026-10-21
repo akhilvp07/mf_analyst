@@ -134,7 +134,7 @@ export default function App() {
       if (result) {
         setAuthUser(result.user);
         setIsSignInModalOpen(false);
-        sessionStorage.removeItem('mftracker_dismissed_signin');
+        sessionStorage.setItem('mftracker_dismissed_signin', 'true');
         setSyncToast({
           message: `Signed in as ${result.user.email}! Syncing your portfolio from Google Drive...`,
           type: 'success'
@@ -161,6 +161,7 @@ export default function App() {
     await logout();
     setAuthUser(null);
     setSyncState('idle');
+    sessionStorage.setItem('mftracker_dismissed_signin', 'true');
     setSyncToast({
       message: 'Signed out of Google account. Local offline data preserved.',
       type: 'success'
@@ -168,17 +169,26 @@ export default function App() {
     setTimeout(() => setSyncToast(null), 3500);
   }, []);
 
-  // Listen for Google Auth state and prompt on initial load
+  // Listen for Google Auth state and preserve session across reloads
   useEffect(() => {
     const unsubscribe = initAuth(
       async (user, token) => {
         setAuthUser(user);
         setIsSignInModalOpen(false);
-        handlePerformDriveSync(token, 'auto');
+        sessionStorage.setItem('mftracker_dismissed_signin', 'true');
+        if (token) {
+          handlePerformDriveSync(token, 'auto');
+        }
+      },
+      (user) => {
+        // User session restored across page reload - maintain login state without modal popup!
+        setAuthUser(user);
+        setIsSignInModalOpen(false);
+        sessionStorage.setItem('mftracker_dismissed_signin', 'true');
       },
       () => {
         setAuthUser(null);
-        // Prompt on initial launch if not dismissed in this session
+        // Only prompt unauthenticated first-time visitors if not dismissed in this session
         const dismissed = sessionStorage.getItem('mftracker_dismissed_signin');
         if (!dismissed) {
           setIsSignInModalOpen(true);
