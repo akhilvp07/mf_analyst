@@ -27,6 +27,16 @@ import { syncSchemesForHoldings, SchemeSyncTarget } from './services/mfApi';
 import { computePortfolioHoldings, mergeTransactions, formatNavDateDisplay } from './utils/financialCalculations';
 import { loadAmfiNavDatabase } from './services/amfiNavService';
 
+import { User as FirebaseUser } from 'firebase/auth';
+import { initAuth, googleSignIn, logout, getAccessToken } from './services/googleAuth';
+import { 
+  syncPortfolioWithDrive, 
+  getLastSyncedTime, 
+  markLocalDataModified 
+} from './services/googleDriveSync';
+import { SyncVisualState } from './components/GoogleDriveSyncIndicator';
+import { GoogleSignInModal } from './components/GoogleSignInModal';
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
   const [visitedTabs, setVisitedTabs] = useState<Set<ActiveTab>>(() => new Set<ActiveTab>(['overview']));
@@ -35,6 +45,14 @@ export default function App() {
   const [isSyncingNavs, setIsSyncingNavs] = useState<boolean>(false);
   const [ledgerSchemeFilter, setLedgerSchemeFilter] = useState<string | undefined>(undefined);
   const [syncToast, setSyncToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Google Sign-In & Drive Sync State
+  const [authUser, setAuthUser] = useState<FirebaseUser | null>(null);
+  const [syncState, setSyncState] = useState<SyncVisualState>('idle');
+  const [lastSyncedDriveAt, setLastSyncedDriveAt] = useState<string | null>(() => getLastSyncedTime());
+  const [isSignInModalOpen, setIsSignInModalOpen] = useState<boolean>(false);
+  const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
 
   // Fast zero-delay tab switching
   const handleTabChange = useCallback((tab: ActiveTab) => {
@@ -46,6 +64,132 @@ export default function App() {
       return next;
     });
   }, []);
+
+  // Execute Google Drive Cloud Sync
+  const handlePerformDriveSync = useCallback(async (token?: string, forceDirection: 'pull' | 'push' | 'auto' = 'auto') => {
+    let currentToken = token;
+    if (!currentToken) {
+      currentToken = (await getAccessToken()) || undefined;
+    }
+    if (!currentToken) {
+      setIsSignInModalOpen(true);
+      return;
+    }
+
+    setSyncState('syncing');
+    try {
+      const localTxs = loadStoredTransactions();
+      const localSchemes = loadSchemeCatalog();
+      const result = await syncPortfolioWithDrive(
+        currentToken,
+        { transactions: localTxs, schemes: localSchemes },
+        { forceDirection }
+      );
+
+      if (result.success) {
+        setLastSyncedDriveAt(result.syncedAt);
+        setSyncState(result.conflict ? 'conflict_resolved' : 'synced');
+
+        if (result.payload) {
+          if (result.action === 'pulled' || result.action === 'merged_conflict') {
+            const remoteTxs = result.payload.transactions || [];
+            const remoteSchemes = result.payload.schemes || {};
+            setTransactions(remoteTxs);
+            setSchemes(remoteSchemes);
+            saveStoredTransactions(remoteTxs);
+            saveAllSchemes(remoteSchemes);
+            persistPortfolioToIndexedDb(remoteTxs, remoteSchemes);
+          }
+        }
+
+        setSyncToast({
+          message: result.message,
+          type: 'success'
+        });
+        setTimeout(() => setSyncToast(null), 4500);
+      } else {
+        setSyncState('error');
+        setSyncToast({
+          message: result.message || 'Drive sync failed. Offline cache active.',
+          type: 'error'
+        });
+        setTimeout(() => setSyncToast(null), 4500);
+      }
+    } catch (err: any) {
+      setSyncState('error');
+      setSyncToast({
+        message: `Sync error: ${err.message}`,
+        type: 'error'
+      });
+      setTimeout(() => setSyncToast(null), 4500);
+    }
+  }, []);
+
+  // Handle Google Interactive Sign In with optional email hint
+  const handleGoogleSignIn = useCallback(async (emailHint?: string) => {
+    setIsSigningIn(true);
+    setSignInError(null);
+    try {
+      const result = await googleSignIn(emailHint);
+      if (result) {
+        setAuthUser(result.user);
+        setIsSignInModalOpen(false);
+        sessionStorage.removeItem('mftracker_dismissed_signin');
+        setSyncToast({
+          message: `Signed in as ${result.user.email}! Syncing your portfolio from Google Drive...`,
+          type: 'success'
+        });
+        setTimeout(() => setSyncToast(null), 3500);
+        await handlePerformDriveSync(result.accessToken, 'auto');
+      }
+    } catch (err: any) {
+      console.error('Google Sign-In failed:', err);
+      let errMsg = err?.message || 'Failed to sign in with Google.';
+      if (err?.code === 'auth/popup-closed-by-user') {
+        errMsg = 'The sign-in popup was closed before completing. If you saw "Error 403: access_denied / not completed Google verification", see the instructions below.';
+      } else if (errMsg.includes('403') || errMsg.includes('access_denied')) {
+        errMsg = 'Google Error 403: access_denied. This app is in Google Cloud testing mode, so only approved test accounts or the developer account can sign in.';
+      }
+      setSignInError(errMsg);
+    } finally {
+      setIsSigningIn(false);
+    }
+  }, [handlePerformDriveSync]);
+
+  // Handle Sign Out
+  const handleSignOut = useCallback(async () => {
+    await logout();
+    setAuthUser(null);
+    setSyncState('idle');
+    setSyncToast({
+      message: 'Signed out of Google account. Local offline data preserved.',
+      type: 'success'
+    });
+    setTimeout(() => setSyncToast(null), 3500);
+  }, []);
+
+  // Listen for Google Auth state and prompt on initial load
+  useEffect(() => {
+    const unsubscribe = initAuth(
+      async (user, token) => {
+        setAuthUser(user);
+        setIsSignInModalOpen(false);
+        handlePerformDriveSync(token, 'auto');
+      },
+      () => {
+        setAuthUser(null);
+        // Prompt on initial launch if not dismissed in this session
+        const dismissed = sessionStorage.getItem('mftracker_dismissed_signin');
+        if (!dismissed) {
+          setIsSignInModalOpen(true);
+        }
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [handlePerformDriveSync]);
 
   // Load initial SWR data on mount and trigger auto-sync
   useEffect(() => {
@@ -283,20 +427,29 @@ export default function App() {
     }
   }, [transactions]);
 
-  // Handle CAS Import (Replace or Merge)
-  const handleImportTransactions = useCallback((imported: TransactionRecord[], replaceExisting = false) => {
+  // Handle CAS Import (Replace or Merge) with Auto Drive Cloud Sync
+  const handleImportTransactions = useCallback(async (imported: TransactionRecord[], replaceExisting = false, newSchemes?: Record<string, MutualFundScheme>) => {
+    let finalTxs: TransactionRecord[] = [];
     let stats = { added: imported.length, duplicates: 0, total: imported.length };
 
+    const mergedSchemes = { ...schemes, ...(newSchemes || {}) };
+    if (newSchemes && Object.keys(newSchemes).length > 0) {
+      setSchemes(mergedSchemes);
+      saveAllSchemes(mergedSchemes);
+    }
+
     if (replaceExisting) {
+      finalTxs = imported;
       setTransactions(imported);
       saveStoredTransactions(imported);
-      persistPortfolioToIndexedDb(imported, schemes);
+      persistPortfolioToIndexedDb(imported, mergedSchemes);
     } else {
       const existing = loadStoredTransactions();
       const mergeResult = mergeTransactions(existing, imported);
+      finalTxs = mergeResult.mergedTransactions;
       setTransactions(mergeResult.mergedTransactions);
       saveStoredTransactions(mergeResult.mergedTransactions);
-      persistPortfolioToIndexedDb(mergeResult.mergedTransactions, schemes);
+      persistPortfolioToIndexedDb(mergeResult.mergedTransactions, mergedSchemes);
       stats = {
         added: mergeResult.addedCount,
         duplicates: mergeResult.duplicateCount,
@@ -304,15 +457,40 @@ export default function App() {
       };
     }
 
-    setSyncToast({
-      message: replaceExisting
-        ? `Portfolio replaced with ${imported.length} transactions.`
-        : stats.duplicates > 0
-        ? `Merged successfully! Added ${stats.added} new transactions (${stats.duplicates} duplicates safely skipped). Total: ${stats.total}`
-        : `Merged successfully! Added ${stats.added} new transactions. Total: ${stats.total}`,
-      type: 'success'
-    });
-    setTimeout(() => setSyncToast(null), 4500);
+    markLocalDataModified();
+
+    // If signed into Google, automatically update the JSON in Drive
+    const token = await getAccessToken();
+    if (token) {
+      setSyncState('syncing');
+      syncPortfolioWithDrive(
+        token,
+        { transactions: finalTxs, schemes: mergedSchemes },
+        { forceDirection: 'push' }
+      ).then(syncResult => {
+        if (syncResult.success) {
+          setSyncState('synced');
+          setLastSyncedDriveAt(syncResult.syncedAt);
+          setSyncToast({
+            message: `CAS statement imported & automatically synced to Google Drive! (${finalTxs.length} transactions total)`,
+            type: 'success'
+          });
+          setTimeout(() => setSyncToast(null), 4500);
+        }
+      }).catch(err => {
+        console.warn('Drive sync after CAS import error:', err);
+      });
+    } else {
+      setSyncToast({
+        message: replaceExisting
+          ? `Portfolio replaced with ${imported.length} transactions (Cached locally).`
+          : stats.duplicates > 0
+          ? `Merged successfully! Added ${stats.added} new transactions (${stats.duplicates} duplicates safely skipped). Cached locally.`
+          : `Merged successfully! Added ${stats.added} new transactions. Cached locally.`,
+        type: 'success'
+      });
+      setTimeout(() => setSyncToast(null), 4500);
+    }
 
     handleTabChange('overview');
     setTimeout(() => {
@@ -355,6 +533,12 @@ export default function App() {
           isSyncingNavs={isSyncingNavs}
           onSyncNavs={handleSyncAllNavs}
           onOpenImport={() => handleTabChange('import')}
+          authUser={authUser}
+          syncState={syncState}
+          lastSyncedDriveAt={lastSyncedDriveAt}
+          onOpenSignIn={() => setIsSignInModalOpen(true)}
+          onDriveSync={() => handlePerformDriveSync(undefined, 'auto')}
+          onSignOut={handleSignOut}
         />
 
         {/* Main View Container - Visited tabs kept in DOM for instant 0ms switching */}
@@ -439,10 +623,25 @@ export default function App() {
                 transactions={transactions}
                 schemes={schemes}
                 onImportTransactions={handleImportTransactions}
+                isGoogleSignedIn={Boolean(authUser)}
+                onOpenGoogleSignIn={() => setIsSignInModalOpen(true)}
+                lastSyncedDriveAt={lastSyncedDriveAt}
               />
             </div>
           )}
         </main>
+
+        {/* Google Account Sign-In Prompt Modal */}
+        <GoogleSignInModal
+          isOpen={isSignInModalOpen}
+          onClose={() => {
+            setIsSignInModalOpen(false);
+            sessionStorage.setItem('mftracker_dismissed_signin', 'true');
+          }}
+          onSignIn={handleGoogleSignIn}
+          isLoading={isSigningIn}
+          errorMessage={signInError}
+        />
       </div>
     </PrivacyProvider>
   );

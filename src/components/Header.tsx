@@ -15,6 +15,8 @@ import {
 import { formatINR } from '../utils/financialCalculations';
 import { PortfolioSummary } from '../types';
 import { usePrivacy, PrivacyValue } from '../context/PrivacyContext';
+import { GoogleDriveSyncIndicator, SyncVisualState } from './GoogleDriveSyncIndicator';
+import { User as FirebaseUser } from 'firebase/auth';
 
 export type ActiveTab = 
   | 'overview' 
@@ -34,6 +36,12 @@ interface HeaderProps {
   isSyncingNavs: boolean;
   onSyncNavs: () => void;
   onOpenImport: () => void;
+  authUser: FirebaseUser | null;
+  syncState: SyncVisualState;
+  lastSyncedDriveAt: string | null;
+  onOpenSignIn: () => void;
+  onDriveSync: () => void;
+  onSignOut: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -41,7 +49,13 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveTab,
   summary,
   isSyncingNavs,
-  onSyncNavs
+  onSyncNavs,
+  authUser,
+  syncState,
+  lastSyncedDriveAt,
+  onOpenSignIn,
+  onDriveSync,
+  onSignOut
 }) => {
   const isPositiveDay = summary.dayGain >= 0;
   const { isPrivacyMode, togglePrivacyMode } = usePrivacy();
@@ -108,8 +122,17 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Privacy Toggle & Sync Button */}
+          {/* Drive Sync, Privacy Toggle & NAV Sync Buttons */}
           <div className="flex items-center gap-2 shrink-0">
+            <GoogleDriveSyncIndicator
+              user={authUser}
+              syncState={syncState}
+              lastSyncedAt={lastSyncedDriveAt}
+              onOpenSignIn={onOpenSignIn}
+              onSyncNow={onDriveSync}
+              onSignOut={onSignOut}
+            />
+
             <button
               id="privacy-toggle-btn"
               onClick={togglePrivacyMode}
