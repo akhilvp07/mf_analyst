@@ -44,9 +44,9 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
 
   // Genuine cashflow-mirrored Nifty 50 benchmark metrics (Public Market Equivalent - PME)
   const niftyBenchmarkXirr = Number.isFinite(summary.niftyXirr) ? (summary.niftyXirr ?? 0) : 0;
-  const alphaVsNifty50 = Number.isFinite(summary.alphaVsNifty) 
-    ? (summary.alphaVsNifty ?? 0) 
-    : (summary.xirr - niftyBenchmarkXirr);
+  const alphaVsNifty50 = summary.xirr !== null
+    ? (Number.isFinite(summary.alphaVsNifty) ? (summary.alphaVsNifty ?? 0) : (summary.xirr - niftyBenchmarkXirr))
+    : null;
 
   return (
     <div className="space-y-6">
@@ -102,9 +102,15 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-extrabold text-teal-400 tracking-tight font-mono">
-              {summary.xirr > 0 ? `+${summary.xirr.toFixed(2)}%` : `${summary.xirr.toFixed(2)}%`}
-            </span>
+            {summary.xirr !== null ? (
+              <span className="text-2xl sm:text-3xl font-extrabold text-teal-400 tracking-tight font-mono">
+                {summary.xirr > 0 ? `+${summary.xirr.toFixed(2)}%` : `${summary.xirr.toFixed(2)}%`}
+              </span>
+            ) : (
+              <span className="text-2xl sm:text-3xl font-extrabold text-neutral-400 tracking-tight font-mono">
+                N/A
+              </span>
+            )}
             <span className="text-xs text-neutral-500 font-medium">p.a.</span>
           </div>
           <div className="mt-3 flex items-center justify-between text-xs border-t border-neutral-800/80 pt-2.5">
@@ -120,9 +126,13 @@ export const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
               </button>
             </div>
             <div className="text-right">
-              <span className={`font-semibold font-mono flex items-center justify-end ${alphaVsNifty50 >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {alphaVsNifty50 >= 0 ? `+${alphaVsNifty50.toFixed(2)}%` : `${alphaVsNifty50.toFixed(2)}%`}
-              </span>
+              {alphaVsNifty50 !== null ? (
+                <span className={`font-semibold font-mono flex items-center justify-end ${alphaVsNifty50 >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {alphaVsNifty50 >= 0 ? `+${alphaVsNifty50.toFixed(2)}%` : `${alphaVsNifty50.toFixed(2)}%`}
+                </span>
+              ) : (
+                <span className="font-semibold font-mono text-neutral-400">N/A</span>
+              )}
               <span className="text-[10px] text-neutral-500 font-mono block">
                 Nifty: {niftyBenchmarkXirr >= 0 ? '+' : ''}{niftyBenchmarkXirr.toFixed(2)}%
               </span>

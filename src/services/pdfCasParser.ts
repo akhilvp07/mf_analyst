@@ -1,6 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { TransactionRecord, MutualFundScheme } from '../types';
-import { cleanFundDisplayName, isValidFolioNumber, normalizeFolioNumber, detectPlanType, detectOptionType, areSchemesEquivalent } from '../utils/financialCalculations';
+import { cleanFundDisplayName, isValidFolioNumber, normalizeFolioNumber, detectPlanType, detectOptionType, areSchemesEquivalent, getTransactionDirection } from '../utils/financialCalculations';
 import { KNOWN_ISIN_MAP, KNOWN_SCHEMES_MAP } from './mfApi';
 import { lookupAmfiByIsin, lookupAmfiBySchemeName, lookupAmfiBySchemeCode, loadAmfiNavDatabase } from './amfiNavService';
 
@@ -23,6 +23,7 @@ export interface PdfParseResult {
   statementPeriod?: string;
   error?: string;
   requiresPassword?: boolean;
+  reconciliationWarnings?: string[];
 }
 
 /**
@@ -803,14 +804,30 @@ export function classifyTransactionType(desc: string): TransactionRecord['type']
   if (d.includes('DIVIDEND REINVEST') || d.includes('REINVESTMENT') || d.includes('DIV REINV')) {
     return 'DIVIDEND_REINVEST';
   }
-  if (d.includes('PURCHASE') || d.includes('LUMPSUM') || d.includes('ADDITIONAL') || d.includes('NFO') || d.includes('INITIAL') || d.includes('NEW PURCHASE')) {
-    return 'LUMPSUM';
+  if (d.includes('DIVIDEND PAYOUT') || d.includes('DIVIDEND PAID') || d.includes('IDCW') || (d.includes('DIVIDEND') && !d.includes('REINVEST'))) {
+    return 'DIVIDEND_PAYOUT';
   }
+  if (d.includes('STAMP DUTY') || d.includes('STAMPDUTY')) {
+    return 'STAMP_DUTY';
+  }
+  if (d.includes('REVERSAL') || d.includes('REVERSED') || d.includes('BOUNCE') || d.includes('REJECT')) {
+    return 'REVERSAL';
+  }
+  if (d.includes('SEGREGAT')) {
+    return 'SEGREGATION';
+  }
+  if (d.includes('CHARGE') || d.includes('FEE') || d.includes('TDS') || d.includes('TAX DEDUCTION')) {
+    return 'CHARGE';
+  }
+  // Check SIP before generic PURCHASE so "SIP Purchase" resolves to SIP
   if (d.includes('SIP') || d.includes('SYSTEMATIC') || d.includes('AUTO DEBIT') || d.includes('MANDATE') || d.includes('NACH') || d.includes('SI PURCHASE')) {
     return 'SIP';
   }
+  if (d.includes('PURCHASE') || d.includes('LUMPSUM') || d.includes('ADDITIONAL') || d.includes('NFO') || d.includes('INITIAL') || d.includes('NEW PURCHASE')) {
+    return 'LUMPSUM';
+  }
 
-  return 'SIP';
+  return 'UNKNOWN';
 }
 
 /**
@@ -842,7 +859,7 @@ function extractFinancialNumbers(text: string): { original: string; value: numbe
         continue;
       }
 
-      if (raw.includes('.') || Math.abs(num) >= 50) {
+      if (raw.includes('.') || Math.abs(num) >= 1) {
         const isNegative = isParenNeg || num < 0 || cleanNum.startsWith('-');
         results.push({
           original: match[0],
@@ -899,6 +916,7 @@ export async function parsePdfCasStatement(
   const detectedSchemesMap = new Map<string, Partial<MutualFundScheme>>();
   const schemeLastNavMap = new Map<string, { nav: number; date: string }>();
   const foliosSet = new Set<string>();
+  const reportedClosingBalances = new Map<string, number>();
 
   try {
     // Ensure official AMFI NAV Database is preloaded for ISIN matching
@@ -1048,6 +1066,17 @@ export async function parsePdfCasStatement(
         }
       }
 
+      // 1b. Detect statement closing unit balance
+      const closingUnitsMatch = line.match(/(?:Closing\s*Unit\s*Balance|Balance\s*Units?|Closing\s*Balance|Cumulative\s*Units?)\s*[:\-\s]\s*([0-9,]+\.[0-9]{2,4})/i);
+      if (closingUnitsMatch && closingUnitsMatch[1]) {
+        const repVal = parseFloat(closingUnitsMatch[1].replace(/,/g, ''));
+        if (!isNaN(repVal) && repVal >= 0) {
+          const scKey = currentSchemeCode || (currentIsin ? `ISIN-${currentIsin}` : currentSchemeName);
+          const fKey = isValidFolioNumber(currentFolio) ? normalizeFolioNumber(currentFolio) : `UNKNOWN-FOLIO-${scKey}`;
+          reportedClosingBalances.set(`${fKey}_${scKey}`, repVal);
+        }
+      }
+
       // 2. Detect Folio Number (strict validation & preservation of full folio/sub-folio IDs)
       if (/(?:Folio\s*(?:No\.?|Number|\#)?|Account\s*(?:No\.?|Number|\#)?)\s*[:\-\s]/i.test(line)) {
         const extracted = extractFolioAndInvestorFromLine(line);
@@ -1122,7 +1151,7 @@ export async function parsePdfCasStatement(
                     const uVal = numbers[u].value;
                     const nVal = numbers[n].value;
 
-                    if (aVal >= 50 && uVal > 0 && nVal > 0) {
+                    if (aVal >= 1 && uVal > 0 && nVal > 0) {
                       const product = uVal * nVal;
                       const diff = Math.abs(product - aVal);
                       const tolerance = Math.max(5.0, aVal * 0.03); // 3% tolerance for stamp duty
@@ -1142,12 +1171,12 @@ export async function parsePdfCasStatement(
               }
 
               // Standard CAMS order fallback: [Amount, Units, NAV, Balance]
-              if (!foundTriplet && (hasTxWord || numbers[0].value >= 100)) {
+              if (!foundTriplet && (hasTxWord || numbers[0].value >= 10)) {
                 const n0 = numbers[0].value;
                 const n1 = numbers[1].value;
                 const n2 = numbers[2].value;
 
-                if (n0 >= 50 && n1 > 0 && n2 > 0) {
+                if (n0 >= 1 && n1 > 0 && n2 > 0) {
                   amount = n0;
                   units = n1;
                   nav = n2;
@@ -1161,12 +1190,12 @@ export async function parsePdfCasStatement(
               const val1 = numbers[0].value;
               const val2 = numbers[1].value;
               
-              if (val1 >= 50 && val2 > 0 && val2 < val1) {
+              if (val1 >= 1 && val2 > 0 && val2 < val1) {
                 amount = val1;
                 units = val2;
                 nav = amount / units;
                 isNegative = numbers[0].isNegative || numbers[1].isNegative;
-              } else if (val2 >= 50 && val1 > 0 && val1 < val2) {
+              } else if (val2 >= 1 && val1 > 0 && val1 < val2) {
                 amount = val2;
                 units = val1;
                 nav = amount / units;
@@ -1183,7 +1212,7 @@ export async function parsePdfCasStatement(
                 if (combined.length >= 2) {
                   const val1 = combined[0].value;
                   const val2 = combined[1].value;
-                  if (val1 >= 50 && val2 > 0 && val2 < val1) {
+                  if (val1 >= 1 && val2 > 0 && val2 < val1) {
                     amount = val1;
                     units = val2;
                     nav = combined.length >= 3 ? combined[2].value : amount / units;
@@ -1199,7 +1228,7 @@ export async function parsePdfCasStatement(
             }
 
             // If we have valid amount and units
-            if (amount >= 50 && units > 0) {
+            if (amount >= 1 && units > 0) {
               if (nav === 0 || isNaN(nav)) nav = amount / units;
               
               if (currentSchemeCode) {
@@ -1230,12 +1259,29 @@ export async function parsePdfCasStatement(
                 txType = 'REDEMPTION';
               }
 
-              const resolvedSchemeCode = currentSchemeCode || `SCHEME-${txIdCounter}`;
+              let resolvedSchemeCode = currentSchemeCode;
+              if (!resolvedSchemeCode) {
+                if (currentIsin) {
+                  resolvedSchemeCode = `ISIN-${currentIsin}`;
+                } else {
+                  let hash = 0;
+                  const sNameClean = (currentSchemeName || 'SCHEME').toLowerCase().replace(/[^a-z0-9]/g, '');
+                  for (let ki = 0; ki < sNameClean.length; ki++) {
+                    hash = (hash << 5) - hash + sNameClean.charCodeAt(ki);
+                    hash |= 0;
+                  }
+                  resolvedSchemeCode = `SCHEME-${Math.abs(hash)}`;
+                }
+              }
               const resolvedSchemeName = currentSchemeName || 'Mutual Fund Scheme';
+
+              const resolvedFolio = isValidFolioNumber(currentFolio) 
+                ? normalizeFolioNumber(currentFolio) 
+                : `UNKNOWN-FOLIO-${resolvedSchemeCode}`;
 
               transactions.push({
                 id: `pdf-tx-${Date.now()}-${txIdCounter++}-${Math.random().toString(36).substring(2, 7)}`,
-                folioNumber: isValidFolioNumber(currentFolio) ? normalizeFolioNumber(currentFolio) : 'FOLIO-1',
+                folioNumber: resolvedFolio,
                 schemeCode: resolvedSchemeCode,
                 schemeName: cleanFundDisplayName(resolvedSchemeName),
                 planType: currentPlanType,
@@ -1389,13 +1435,32 @@ export async function parsePdfCasStatement(
 
     const totalFolioCount = allUniqueFolios.size || (finalTransactions.length > 0 ? 1 : 0);
 
+    // Reconcile computed units against reported closing balances per folio
+    const computedUnitsMap = new Map<string, number>();
+    finalTransactions.forEach(tx => {
+      const key = `${tx.folioNumber}_${tx.schemeCode}`;
+      const dir = getTransactionDirection(tx.type);
+      computedUnitsMap.set(key, (computedUnitsMap.get(key) || 0) + dir.unitDelta * tx.units);
+    });
+
+    const reconciliationWarnings: string[] = [];
+    reportedClosingBalances.forEach((repUnits, key) => {
+      const computed = computedUnitsMap.get(key) || 0;
+      if (Math.abs(computed - repUnits) > 0.05) {
+        reconciliationWarnings.push(
+          `Closing balance mismatch for ${key}: computed ${computed.toFixed(3)} units vs statement reported ${repUnits.toFixed(3)} units`
+        );
+      }
+    });
+
     return {
       transactions: finalTransactions,
       detectedSchemes: detectedSchemesList,
       folioCount: totalFolioCount,
       investorName,
       pan,
-      statementPeriod
+      statementPeriod,
+      reconciliationWarnings: reconciliationWarnings.length > 0 ? reconciliationWarnings : undefined
     };
   } catch (error: any) {
     const errorMsg = error?.message || String(error);

@@ -99,13 +99,13 @@ export const CasImporter: React.FC<CasImporterProps> = ({
               category: s.category || 'Equity - Flexi Cap',
               planType: s.planType || 'Direct',
               optionType: s.optionType || 'Growth',
-              currentNav: s.currentNav && s.currentNav > 0 ? s.currentNav : 85.0,
-              navDate: s.navDate || new Date().toISOString().split('T')[0],
+              currentNav: s.currentNav && s.currentNav > 0 ? s.currentNav : 0,
+              navDate: s.navDate || '',
               navChange1D: s.navChange1D || 0,
-              cagr3Y: 15,
-              cagr5Y: 18,
-              aumCr: 10000,
-              expenseRatio: s.planType === 'Direct' ? 0.65 : 1.35,
+              cagr3Y: s.cagr3Y,
+              cagr5Y: s.cagr5Y,
+              aumCr: s.aumCr,
+              expenseRatio: s.expenseRatio,
               isin: s.isin || ''
             };
           }

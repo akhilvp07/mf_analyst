@@ -2,35 +2,24 @@ import express from 'express';
 import path from 'path';
 import https from 'https';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import helmet from 'helmet';
 
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+// Security headers with content security policy configured for development and external CDN assets
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  })
+);
 
 app.use(express.json({ limit: '10mb' }));
 
-// Lazy initialization of GoogleGenAI client
-let aiClient: GoogleGenAI | null = null;
-function getGenAI(): GoogleGenAI {
-  if (!aiClient) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error('GEMINI_API_KEY environment variable is not configured');
-    }
-    aiClient = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
-    });
-  }
-  return aiClient;
-}
 
 // In-memory cache for AMFI NAV data
 let cachedAmfiText = '';
@@ -115,226 +104,9 @@ app.get(['/api/amfi-nav', '/api/amfi/navall'], async (req, res) => {
   }
 });
 
-// 3. Gemini AI Generation Helper with automatic retry and model fallback
-async function generateWithFallback(prompt: string, systemInstruction: string, temperature: number = 0.7): Promise<string> {
-  const ai = getGenAI();
-  // Prioritize high-capacity, ultra-stable production models to avoid transient 503 high-demand errors
-  const models = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.7-flash'];
-  let lastError: any = null;
-
-  for (const model of models) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: prompt,
-          config: {
-            systemInstruction,
-            temperature,
-          },
-        });
-        if (response.text) {
-          return response.text;
-        }
-      } catch (err: any) {
-        lastError = err;
-        const errMsg = err?.message || String(err);
-        const isTransient = errMsg.includes('503') || errMsg.includes('429') || errMsg.includes('high demand') || errMsg.includes('UNAVAILABLE') || errMsg.includes('RESOURCE_EXHAUSTED');
-        if (isTransient && attempt === 0) {
-          await new Promise(r => setTimeout(r, 600));
-        } else {
-          break; // proceed to next fallback model
-        }
-      }
-    }
-  }
-
-  throw lastError || new Error('All AI models unavailable');
-}
-
-// 3. Gemini AI Portfolio Insights & Audit Endpoint
-app.post('/api/gemini/insights', async (req, res) => {
-  try {
-    const { holdings, summary, strategy, marketCap, assetAlloc, taxSummary } = req.body;
-
-    if (!holdings || !Array.isArray(holdings) || holdings.length === 0) {
-      return res.status(400).json({ error: 'Holdings data is required to generate portfolio insights' });
-    }
-
-    // Prepare clean portfolio summary for Gemini context
-    const cleanHoldings = holdings.map((h: any) => ({
-      name: h.schemeName,
-      category: h.category,
-      fundHouse: h.fundHouse,
-      plan: h.planType || 'Direct',
-      valueINR: Math.round(h.currentValue),
-      weightPct: Number((h.allocationPercentage || 0).toFixed(2)),
-      gainINR: Math.round(h.totalGain),
-      gainPct: Number((h.totalGainPercentage || 0).toFixed(2)),
-      xirrPct: Number((h.xirr || 0).toFixed(2)),
-    }));
-
-    const prompt = `You are an elite Indian SEBI-registered portfolio architect and mutual fund expert.
-Analyze the following user's mutual fund investment portfolio thoroughly. Provide deep, actionable, institutional-grade diagnostics and rebalance advice.
-
-PORTFOLIO OVERVIEW:
-- Total Portfolio Valuation: ₹${Math.round(summary?.totalCurrentValue || 0).toLocaleString('en-IN')}
-- Total Invested Capital: ₹${Math.round(summary?.totalInvestedAmount || 0).toLocaleString('en-IN')}
-- Total Unrealized Gain: ₹${Math.round(summary?.totalGain || 0).toLocaleString('en-IN')} (${(summary?.totalGainPercentage || 0).toFixed(2)}%)
-- Portfolio XIRR: ${(summary?.xirr || 0).toFixed(2)}% p.a.
-- Total Active Schemes: ${holdings.length}
-
-CURRENT ASSET CLASS ALLOCATION:
-- Equity: ${(assetAlloc?.equity || 0).toFixed(1)}% (Target: ${strategy?.equity || 70}%)
-- Debt: ${(assetAlloc?.debt || 0).toFixed(1)}% (Target: ${strategy?.debt || 20}%)
-- Gold & Commodities: ${(assetAlloc?.gold || 0).toFixed(1)}% (Target: ${strategy?.gold || 10}%)
-- Liquid / Cash: ${(assetAlloc?.cash || 0).toFixed(1)}% (Target: ${strategy?.cash || 0}%)
-
-CURRENT EQUITY MARKET-CAP BREAKDOWN:
-- Large Cap: ${(marketCap?.largeCap || 0).toFixed(1)}% (Target: ${strategy?.largeCap || 50}%)
-- Mid Cap: ${(marketCap?.midCap || 0).toFixed(1)}% (Target: ${strategy?.midCap || 30}%)
-- Small Cap: ${(marketCap?.smallCap || 0).toFixed(1)}% (Target: ${strategy?.smallCap || 20}%)
-
-TARGET STRATEGY SELECTED: "${strategy?.name || 'Custom Strategy'}"
-Description: ${strategy?.description || ''}
-
-ACTIVE HOLDINGS:
-${JSON.stringify(cleanHoldings, null, 2)}
-
-TAX HARVESTING / UNREALIZED STATUS:
-- Unrealized LTCG: ₹${Math.round(taxSummary?.unrealizedLtcg || 0).toLocaleString('en-IN')}
-- Unrealized STCG: ₹${Math.round(taxSummary?.unrealizedStcg || 0).toLocaleString('en-IN')}
-
-INSTRUCTIONS:
-Provide your evaluation in clear, elegant Markdown with the following structured sections:
-1. **Executive Portfolio Health Score**: Give an objective Score (0 to 100) and Rating Grade (e.g. A, B+, etc.) with a 2-3 sentence verdict.
-2. **Asset Allocation & Market-Cap Diagnostic**: Evaluate the asset drift against the target. Note any small-cap or large-cap over-concentration and risk implications.
-3. **Scheme Overlap & Duplication Audit**: Detect stock overlap, redundant schemes in the same category, or high expense regular plans.
-4. **Actionable Rebalancing Strategy**: Step-by-step guidance on how to rebalance. Emphasize tax-efficient rebalancing via fresh monthly SIP routing (avoiding unnecessary LTCG/STCG tax triggers) vs direct switches.
-5. **Tactical Action Items**: 3-4 bullet points with high-impact, immediate takeaways for the investor.
-
-Maintain a professional, objective, high-conviction financial tone.`;
-
-    let markdownText = '';
-    try {
-      markdownText = await generateWithFallback(
-        prompt,
-        'You are an institutional Indian mutual fund portfolio strategist and advisor.',
-        0.7
-      );
-    } catch (genErr: any) {
-      console.warn('All upstream Gemini models busy/unavailable, generating deterministic expert rule-based diagnostic:', genErr?.message);
-      
-      const totalVal = Math.round(summary?.totalCurrentValue || 0);
-      const eqDrift = (assetAlloc?.equity || 0) - (strategy?.equity || 70);
-      const debtDrift = (assetAlloc?.debt || 0) - (strategy?.debt || 20);
-      const goldDrift = (assetAlloc?.gold || 0) - (strategy?.gold || 10);
-      
-      const score = Math.max(68, Math.min(94, Math.round(88 - Math.abs(eqDrift) * 0.8 - Math.abs(debtDrift) * 0.5)));
-
-      markdownText = `### 🎯 Executive Portfolio Diagnostic & Audit
-**Score: ${score}/100** | Grade: **${score >= 85 ? 'A (Institutional Grade)' : score >= 75 ? 'B+ (Sound Core)' : 'B (Rebalance Suggested)'}**
-
-Your portfolio represents an active capital allocation across **${holdings.length} mutual fund schemes** with a net current valuation of **₹${totalVal.toLocaleString('en-IN')}** and an aggregate gain of **${(summary?.totalGainPercentage || 0).toFixed(2)}%**.
-
----
-
-#### 1. Asset Allocation & Market-Cap Diagnostic
-- **Equity Profile**: Currently **${(assetAlloc?.equity || 0).toFixed(1)}%** against target **${strategy?.equity || 70}%** (${eqDrift > 0 ? `+${eqDrift.toFixed(1)}% Overweight` : `${eqDrift.toFixed(1)}% Underweight`}).
-- **Fixed Income (Debt)**: **${(assetAlloc?.debt || 0).toFixed(1)}%** (Target: ${strategy?.debt || 20}%).
-- **Gold & Hedge**: **${(assetAlloc?.gold || 0).toFixed(1)}%** (Target: ${strategy?.gold || 10}%).
-- **Market Cap Distribution**: Large Cap: **${(marketCap?.largeCap || 0).toFixed(1)}%**, Mid Cap: **${(marketCap?.midCap || 0).toFixed(1)}%**, Small Cap: **${(marketCap?.smallCap || 0).toFixed(1)}%**.
-${(marketCap?.smallCap || 0) > 30 ? '⚠️ Small-cap exposure exceeds standard risk guardrails (>30%). Be prepared for higher drawdown volatility during cyclical market corrections.' : '✅ Market-cap distribution is within balanced risk thresholds.'}
-
----
-
-#### 2. Scheme Overlap & Portfolio Hygiene
-- **Fund Count**: ${holdings.length <= 5 ? '✅ Lean, highly manageable fund count preventing portfolio dilution.' : holdings.length <= 10 ? '🟡 Moderate fund count. Check for overlapping stocks between Flexi Cap and Large Cap schemes.' : '⚠️ High scheme count (>10 funds). Risk of over-diversification without alpha generation.'}
-- **Direct vs Regular**: Verify all holdings are in **Direct - Growth** plans to avoid up to 0.75%–1.2% in recurring distributor commissions.
-
----
-
-#### 3. Actionable Rebalancing Strategy
-- **Smart SIP Routing**: Do **not** redeem overweight funds if it triggers 20% STCG or 12.5% LTCG. Direct your ongoing monthly SIP inflows towards **${debtDrift < 0 && goldDrift < 0 ? 'Debt and Gold/Commodities' : eqDrift < 0 ? 'Equity' : 'Underweight Asset Classes'}**.
-- **LTCG Harvesting**: Take advantage of the annual **₹1.25 Lakh zero-tax LTCG exemption limit** by rebalancing mature equity units into debt funds annually without paying tax.
-
----
-
-#### 4. Tactical Action Items
-1. **Direct Inflows**: Route 100% of the next 3–6 months' fresh SIP capital into under-allocated asset classes.
-2. **Review Small-Cap Weight**: Cap Small-Cap exposure at **20%–25%** for optimal long-term Sharpe ratio.
-3. **Emergency Liquidity**: Ensure at least 6 months of expenses are parked in an Overnight/Liquid fund.`;
-    }
-
-    // Extract quick numerical score if present
-    const scoreMatch = markdownText.match(/Score[:\s*]+(\d{1,3})(?:\/100)?/i) || markdownText.match(/(\d{1,2})\/100/);
-    const score = scoreMatch ? Math.min(100, Math.max(1, parseInt(scoreMatch[1], 10))) : 82;
-
-    res.json({
-      score,
-      markdown: markdownText,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err: any) {
-    console.error('Gemini Insights Error:', err);
-    res.status(500).json({
-      error: 'Failed to generate AI portfolio insights',
-      details: err?.message || String(err),
-    });
-  }
-});
-
-// 4. Gemini AI Interactive Chat / Ask Follow-Up Endpoint
-app.post('/api/gemini/ask', async (req, res) => {
-  try {
-    const { question, holdings, summary, strategy } = req.body;
-
-    if (!question || typeof question !== 'string') {
-      return res.status(400).json({ error: 'Question is required' });
-    }
-
-    const prompt = `You are an expert mutual fund advisor analyzing the user's Indian mutual fund portfolio.
-User Question: "${question}"
-
-PORTFOLIO SNAPSHOT:
-- Total Value: ₹${Math.round(summary?.totalCurrentValue || 0).toLocaleString('en-IN')}
-- Active Funds (${holdings?.length || 0}):
-${(holdings || []).map((h: any) => `- ${h.schemeName} (${h.category}): ₹${Math.round(h.currentValue).toLocaleString('en-IN')} (${(h.allocationPercentage || 0).toFixed(1)}%), Gain: ${(h.totalGainPercentage || 0).toFixed(1)}%`).join('\n')}
-- Target Allocation: Equity ${strategy?.equity || 70}%, Debt ${strategy?.debt || 20}%, Gold ${strategy?.gold || 10}%
-
-Provide a concise, direct, helpful answer addressing their specific question with Indian mutual fund regulations (SEBI rules, LTCG/STCG tax laws, AMC track records).`;
-
-    let answer = '';
-    try {
-      answer = await generateWithFallback(
-        prompt,
-        'You are a concise, insightful Indian financial expert.',
-        0.6
-      );
-    } catch (genErr: any) {
-      console.warn('Gemini chat fallback invoked:', genErr?.message);
-      answer = `Regarding **"${question}"**:
-For an Indian mutual fund portfolio with ${holdings?.length || 0} schemes valued at ₹${Math.round(summary?.totalCurrentValue || 0).toLocaleString('en-IN')}:
-1. **Asset Allocation**: Align your portfolio with your target strategy (${strategy?.name || 'Custom'}) to control drawdown risk.
-2. **Tax Efficiency**: Always utilize the ₹1.25 Lakh annual LTCG tax-free threshold and avoid triggering 20% STCG on units held under 1 year.
-3. **Execution**: Implement changes via smart monthly SIP routing into underweight categories rather than selling units prematurely.`;
-    }
-
-    res.json({
-      answer: answer || 'No response generated.',
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err: any) {
-    console.error('Gemini Ask Error:', err);
-    res.status(500).json({
-      error: 'Failed to answer portfolio question',
-      details: err?.message || String(err),
-    });
-  }
-});
 
 // Helper to fetch live official Nifty 50 Consolidated P/E Ratio (TTM)
-function fetchOfficialNiftyPeTtm(): Promise<number> {
+function fetchOfficialNiftyPeTtm(): Promise<number | null> {
   return new Promise((resolve) => {
     const req = https.get('https://nifty-pe-ratio.com/', {
       headers: {
@@ -350,23 +122,20 @@ function fetchOfficialNiftyPeTtm(): Promise<number> {
                   d.match(/Nifty 50 PE Ratio Today:\s*([0-9]+(?:\.[0-9]+)?)/i);
         if (m && m[1]) {
           const val = parseFloat(m[1]);
-          if (val > 14 && val < 35) {
+          if (val > 10 && val < 45) {
             return resolve(Number(val.toFixed(2)));
           }
         }
-        resolve(19.77);
+        resolve(null);
       });
     });
-    req.on('error', () => resolve(19.77));
-    req.on('timeout', () => { req.destroy(); resolve(19.77); });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
   });
 }
 
 // 5. Nifty 50 Market Analysis & Opportunity Alerts Endpoint
 app.get('/api/market/nifty', async (req, res) => {
-  const ALL_TIME_PEAK = 26216.05;
-  const ALL_TIME_PEAK_DATE = '2024-09-27';
-
   try {
     const fetchYahooNifty = (): Promise<any> => {
       return new Promise((resolve, reject) => {
@@ -377,7 +146,8 @@ app.get('/api/market/nifty', async (req, res) => {
           },
           timeout: 4000,
         };
-        https.get('https://query2.finance.yahoo.com/v8/finance/chart/%5ENSEI?range=3mo&interval=1d', options, (resp) => {
+        // Fetch up to 1 year of daily history to dynamically compute true peak
+        https.get('https://query2.finance.yahoo.com/v8/finance/chart/%5ENSEI?range=1y&interval=1d', options, (resp) => {
           let raw = '';
           resp.on('data', c => raw += c);
           resp.on('end', () => {
@@ -394,18 +164,21 @@ app.get('/api/market/nifty', async (req, res) => {
 
     let latestClose = 23146.15;
     let prevClose = 22997.35;
-    let history: Array<{ date: string; close: number; peak: number; drawdownPercent: number; pe: number; peTtm: number; isDrawdownAlert: boolean; isPeAlert: boolean }> = [];
+    let history: Array<{ date: string; close: number; peak: number; drawdownPercent: number; pe: number | null; peTtm: number | null; isDrawdownAlert: boolean; isPeAlert: boolean }> = [];
     let lastTradeTimestamp = Date.now();
+    let isStale = false;
+    let dynamicPeak = 26216.05;
+    let dynamicPeakDate = '2024-09-27';
 
     const [yahooData, fetchedPeTtm] = await Promise.all([
       fetchYahooNifty().catch((err) => {
         console.warn('Yahoo Finance Nifty fetch error:', err?.message);
         return null;
       }),
-      fetchOfficialNiftyPeTtm().catch(() => 19.77)
+      fetchOfficialNiftyPeTtm().catch(() => null)
     ]);
 
-    const currentPeTtm = Number((fetchedPeTtm || 19.77).toFixed(2));
+    const currentPeTtm: number | null = fetchedPeTtm;
 
     if (yahooData?.chart?.result?.[0]) {
       const result = yahooData.chart.result[0];
@@ -414,16 +187,31 @@ app.get('/api/market/nifty', async (req, res) => {
       prevClose = Number(meta.chartPreviousClose || meta.previousClose || prevClose);
       if (meta.regularMarketTime) {
         lastTradeTimestamp = meta.regularMarketTime * 1000;
+        // Check if market data is older than 5 days (e.g. prolonged weekend/holiday or stale connection)
+        if (Date.now() - lastTradeTimestamp > 5 * 24 * 60 * 60 * 1000) {
+          isStale = true;
+        }
       }
-
-      // Compute exact trailing EPS from current price and official current P/E (TTM)
-      const currentCloseVal = Number(latestClose.toFixed(2));
-      const effectiveTtmEps = currentPeTtm > 0 ? (currentCloseVal / currentPeTtm) : 1170.77;
 
       const timestamps: number[] = result.timestamp || [];
       const quotes: number[] = result.indicators?.quote?.[0]?.close || [];
 
-      let runningPeak = ALL_TIME_PEAK;
+      // Find true dynamic peak across the entire retrieved dataset
+      for (let idx = 0; idx < quotes.length; idx++) {
+        const c = quotes[idx];
+        if (c && !isNaN(c) && c > dynamicPeak) {
+          dynamicPeak = Number(c.toFixed(2));
+          if (timestamps[idx]) {
+            dynamicPeakDate = new Date(timestamps[idx] * 1000).toISOString().split('T')[0];
+          }
+        }
+      }
+
+      // Compute trailing EPS if PE is known
+      const currentCloseVal = Number(latestClose.toFixed(2));
+      const effectiveTtmEps = currentPeTtm && currentPeTtm > 0 ? (currentCloseVal / currentPeTtm) : null;
+
+      let runningPeak = 0;
       history = timestamps.map((ts, idx) => {
         const c = quotes[idx];
         if (!c || isNaN(c)) return null;
@@ -431,7 +219,9 @@ app.get('/api/market/nifty', async (req, res) => {
         if (roundedClose > runningPeak) runningPeak = roundedClose;
         const dd = Number((((roundedClose - runningPeak) / runningPeak) * 100).toFixed(2));
         const isLatestPoint = (idx === timestamps.length - 1);
-        const peVal = isLatestPoint ? currentPeTtm : Number((roundedClose / effectiveTtmEps).toFixed(2));
+        const peVal = isLatestPoint 
+          ? currentPeTtm 
+          : (effectiveTtmEps ? Number((roundedClose / effectiveTtmEps).toFixed(2)) : null);
         const dStr = new Date(ts * 1000).toISOString().split('T')[0];
         return {
           date: dStr,
@@ -440,65 +230,44 @@ app.get('/api/market/nifty', async (req, res) => {
           drawdownPercent: dd,
           pe: peVal,
           peTtm: peVal,
-          isDrawdownAlert: dd <= -15.0,
-          isPeAlert: peVal < 20.0
+          isDrawdownAlert: !isStale && dd <= -15.0,
+          isPeAlert: !isStale && peVal !== null && peVal < 20.0
         };
       }).filter(Boolean) as any[];
-    }
-
-    // Ensure fallback history if Yahoo returned empty or failed
-    const effectiveTtmEps = currentPeTtm > 0 ? (latestClose / currentPeTtm) : 1170.77;
-    if (history.length === 0) {
-      const fallbackPoints = [
-        { date: '2024-09-27', close: 26216.05, pe: 22.39 },
-        { date: '2024-10-15', close: 25057.35, pe: 21.40 },
-        { date: '2024-11-04', close: 23995.35, pe: 20.49 },
-        { date: '2024-11-20', close: 23518.50, pe: 20.09 },
-        { date: '2024-12-20', close: 23812.80, pe: 20.34 },
-        { date: '2025-01-15', close: 23205.10, pe: 19.82 },
-        { date: '2025-02-05', close: 22850.40, pe: 19.52 },
-        { date: '2025-02-28', close: 22179.90, pe: 18.94 },
-        { date: '2025-03-15', close: 22622.70, pe: 19.32 },
-        { date: '2025-03-25', close: 22997.35, pe: 19.64 },
-        { date: '2025-04-05', close: 23146.15, pe: currentPeTtm },
-      ];
-      history = fallbackPoints.map(p => {
-        const dd = Number((((p.close - ALL_TIME_PEAK) / ALL_TIME_PEAK) * 100).toFixed(2));
-        const peVal = Number(p.pe.toFixed(2));
-        return {
-          date: p.date,
-          close: p.close,
-          peak: ALL_TIME_PEAK,
-          drawdownPercent: dd,
-          pe: peVal,
-          peTtm: peVal,
-          isDrawdownAlert: dd <= -15.0,
-          isPeAlert: peVal < 20.0
-        };
-      });
+    } else {
+      isStale = true;
     }
 
     const currentClose = Number(latestClose.toFixed(2));
-    const pointDrop = Number((ALL_TIME_PEAK - currentClose).toFixed(2));
-    const percentDrop = Number((((currentClose - ALL_TIME_PEAK) / ALL_TIME_PEAK) * 100).toFixed(2));
-    const is15PercentDropAlert = percentDrop <= -15.0;
-    const triggerLevel15Percent = Number((ALL_TIME_PEAK * 0.85).toFixed(2));
+    const pointDrop = Number((dynamicPeak - currentClose).toFixed(2));
+    const percentDrop = Number((((currentClose - dynamicPeak) / dynamicPeak) * 100).toFixed(2));
+    const is15PercentDropAlert = !isStale && percentDrop <= -15.0;
+    const triggerLevel15Percent = Number((dynamicPeak * 0.85).toFixed(2));
     const pointsTo15Drop = Number((currentClose - triggerLevel15Percent).toFixed(2));
 
-    const isPeBelow20Alert = currentPeTtm < 20.0;
-    const priceAtPe20 = Number((20.0 * effectiveTtmEps).toFixed(2));
-    const pointsToPe20 = Number((currentClose - priceAtPe20).toFixed(2));
-
-    let peZone: 'deep_value' | 'accumulation' | 'fair' | 'expensive' = 'fair';
-    if (currentPeTtm < 20.0) peZone = 'deep_value';
-    else if (currentPeTtm <= 22.0) peZone = 'accumulation';
-    else if (currentPeTtm <= 24.5) peZone = 'fair';
-    else peZone = 'expensive';
+    const isPeBelow20Alert = !isStale && currentPeTtm !== null && currentPeTtm < 20.0;
+    let peZone: 'deep_value' | 'accumulation' | 'fair' | 'expensive' | 'unknown' = 'unknown';
+    if (currentPeTtm !== null) {
+      if (currentPeTtm < 20.0) peZone = 'deep_value';
+      else if (currentPeTtm <= 22.0) peZone = 'accumulation';
+      else if (currentPeTtm <= 24.5) peZone = 'fair';
+      else peZone = 'expensive';
+    }
 
     const changePts = Number((currentClose - prevClose).toFixed(2));
     const changePct = Number(((changePts / prevClose) * 100).toFixed(2));
 
-    const conciseSummary = `Nifty 50 closed at ${currentClose.toLocaleString('en-IN')}, which is ${Math.abs(pointDrop).toLocaleString('en-IN')} points (${Math.abs(percentDrop)}%) below its all-time peak of ${ALL_TIME_PEAK.toLocaleString('en-IN')} (${ALL_TIME_PEAK_DATE}). Current Nifty P/E Ratio (TTM) is ${currentPeTtm.toFixed(2)} (< 20.00 Buy Opportunity Triggered).`;
+    // Conditional concise summary (never blindly claims Buy Opportunity Triggered)
+    let conciseSummary = `Nifty 50 closed at ${currentClose.toLocaleString('en-IN')}, which is ${Math.abs(pointDrop).toLocaleString('en-IN')} points (${Math.abs(percentDrop)}%) below peak ${dynamicPeak.toLocaleString('en-IN')} (${dynamicPeakDate}).`;
+    if (isStale) {
+      conciseSummary += ' (Market feed is currently stale; opportunity alerts suppressed).';
+    } else if (isPeBelow20Alert) {
+      conciseSummary += ` Current Nifty P/E (TTM) is ${currentPeTtm?.toFixed(2)} (< 20.00 Valuation Buy Opportunity Active).`;
+    } else if (currentPeTtm !== null) {
+      conciseSummary += ` Current Nifty P/E (TTM) is ${currentPeTtm.toFixed(2)} (${peZone} zone).`;
+    } else {
+      conciseSummary += ' (Live P/E data currently unavailable).';
+    }
 
     res.json({
       symbol: '^NSEI',
@@ -508,8 +277,9 @@ app.get('/api/market/nifty', async (req, res) => {
       change: changePts,
       changePercent: changePct,
       lastUpdated: new Date(lastTradeTimestamp).toISOString(),
-      allTimePeak: ALL_TIME_PEAK,
-      allTimePeakDate: ALL_TIME_PEAK_DATE,
+      isStale,
+      allTimePeak: dynamicPeak,
+      allTimePeakDate: dynamicPeakDate,
       pointDropFromPeak: pointDrop,
       percentDropFromPeak: percentDrop,
       drawdownTriggerPercent: 15.0,
@@ -522,13 +292,13 @@ app.get('/api/market/nifty', async (req, res) => {
       peThreshold: 20.0,
       isPeAlertActive: isPeBelow20Alert,
       peZone,
-      pointsToPe20Threshold: pointsToPe20,
+      pointsToPe20Threshold: null,
       conciseSummary,
       history,
     });
   } catch (err: any) {
     console.error('Nifty Market API error:', err);
-    res.status(500).json({ error: 'Failed to retrieve market data', details: err?.message });
+    res.status(500).json({ error: 'Failed to retrieve market data' });
   }
 });
 

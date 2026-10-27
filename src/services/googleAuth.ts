@@ -27,41 +27,44 @@ export const DRIVE_APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdat
 const TOKEN_KEY = 'mftracker_drive_access_token';
 const TOKEN_EXPIRY_KEY = 'mftracker_drive_token_expiry';
 
+// Clean up any historical token leak from localStorage if present
+try {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_EXPIRY_KEY);
+} catch {}
+
 // Flag to track interactive sign-in flow
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
 let currentAuthUser: User | null = null;
 
 /**
- * Persist the OAuth access token for the duration of the session
+ * Persist the OAuth access token in memory and sessionStorage only
  */
 export const saveSessionToken = (token: string, expiresInSeconds: number = 3600): void => {
   cachedAccessToken = token;
   try {
     sessionStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(TOKEN_KEY, token);
     const expiryTime = Date.now() + Math.max(300, expiresInSeconds - 60) * 1000;
     sessionStorage.setItem(TOKEN_EXPIRY_KEY, String(expiryTime));
-    localStorage.setItem(TOKEN_EXPIRY_KEY, String(expiryTime));
   } catch (e) {
     console.warn('Storage write error for token:', e);
   }
 };
 
 /**
- * Retrieve stored token if still within validity window
+ * Retrieve stored token from memory or sessionStorage if still within validity window
  */
 export const getStoredSessionToken = (): string | null => {
   if (cachedAccessToken) return cachedAccessToken;
   try {
-    const token = sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY);
-    const expStr = sessionStorage.getItem(TOKEN_EXPIRY_KEY) || localStorage.getItem(TOKEN_EXPIRY_KEY);
+    const token = sessionStorage.getItem(TOKEN_KEY);
+    const expStr = sessionStorage.getItem(TOKEN_EXPIRY_KEY);
     if (token) {
       if (expStr && Number(expStr) > Date.now()) {
         cachedAccessToken = token;
         return token;
       }
-      // If token expired, clear from storage
       clearSessionToken();
     }
   } catch (e) {
@@ -71,7 +74,7 @@ export const getStoredSessionToken = (): string | null => {
 };
 
 /**
- * Purge stored access token
+ * Purge stored access token from memory and sessionStorage
  */
 export const clearSessionToken = (): void => {
   cachedAccessToken = null;

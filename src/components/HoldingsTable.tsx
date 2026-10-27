@@ -97,7 +97,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
             const avgBuyNavVal = Number.isFinite(holding.avgBuyNav) ? holding.avgBuyNav : 0;
             const currentNavVal = Number.isFinite(holding.currentNav) ? holding.currentNav : 0;
             const totalGainPctVal = Number.isFinite(holding.totalGainPercentage) ? holding.totalGainPercentage : 0;
-            const xirrVal = Number.isFinite(holding.xirr) ? holding.xirr : 0;
+            const xirrVal = holding.xirr !== null && Number.isFinite(holding.xirr) ? holding.xirr : null;
             const allocPctVal = Number.isFinite(holding.allocationPercentage) ? holding.allocationPercentage : 0;
 
             return (
@@ -133,7 +133,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                 <div className="flex items-center justify-between text-[11px] text-neutral-400 bg-neutral-950/60 px-3 py-2 rounded-xl border border-neutral-800/70">
                   <div className="flex flex-col min-w-0 pr-2">
                     <span className="truncate">Folio: <strong className="font-mono text-neutral-300">{holding.folioNumber}</strong></span>
-                    {holding.navDate && (
+                    {holding.navDate && currentNavVal > 0 && (
                       <span className="text-[10px] text-neutral-500 font-mono mt-0.5">
                         NAV as of: <span className="text-neutral-300 font-medium">{formatNavDateShort(holding.navDate)}</span>
                       </span>
@@ -141,8 +141,12 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <div className="text-right">
-                      <div className="font-mono font-semibold text-neutral-200">₹{currentNavVal.toFixed(2)}</div>
-                      {navChange !== 0 && (
+                      {currentNavVal > 0 ? (
+                        <div className="font-mono font-semibold text-neutral-200">₹{currentNavVal.toFixed(2)}</div>
+                      ) : (
+                        <div className="text-[11px] text-amber-400 font-medium">NAV unavailable</div>
+                      )}
+                      {navChange !== 0 && currentNavVal > 0 && (
                         <div className={`text-[10px] font-mono flex items-center justify-end gap-0.5 ${navChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                           {navChange >= 0 ? '+' : ''}{navChange.toFixed(2)}%
                         </div>
@@ -199,7 +203,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                     <div className="mt-1 flex items-center justify-end gap-1.5">
                       <span className="text-[10px] text-neutral-400">XIRR:</span>
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-teal-500/10 text-teal-300 border border-teal-500/20">
-                        {xirrVal > 0 ? `+${xirrVal.toFixed(1)}%` : `${xirrVal.toFixed(1)}%`}
+                        {xirrVal !== null ? (xirrVal > 0 ? `+${xirrVal.toFixed(1)}%` : `${xirrVal.toFixed(1)}%`) : 'N/A'}
                       </span>
                     </div>
                   </div>
@@ -260,7 +264,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                   const avgBuyNavVal = Number.isFinite(holding.avgBuyNav) ? holding.avgBuyNav : 0;
                   const currentNavVal = Number.isFinite(holding.currentNav) ? holding.currentNav : 0;
                   const totalGainPctVal = Number.isFinite(holding.totalGainPercentage) ? holding.totalGainPercentage : 0;
-                  const xirrVal = Number.isFinite(holding.xirr) ? holding.xirr : 0;
+                  const xirrVal = holding.xirr !== null && Number.isFinite(holding.xirr) ? holding.xirr : null;
                   const allocPctVal = Number.isFinite(holding.allocationPercentage) ? holding.allocationPercentage : 0;
                   const rowPy = 'py-3';
 
@@ -322,7 +326,11 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                       {/* Current Live NAV */}
                       <td className={`${rowPy} px-3 text-right whitespace-nowrap`}>
                         <div className="font-mono font-bold text-neutral-100 flex items-center justify-end gap-1.5">
-                          <span>₹{currentNavVal >= 1000 ? currentNavVal.toFixed(2) : Number.isInteger(currentNavVal) ? currentNavVal.toFixed(2) : currentNavVal.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')}</span>
+                          {currentNavVal > 0 ? (
+                            <span>₹{currentNavVal >= 1000 ? currentNavVal.toFixed(2) : Number.isInteger(currentNavVal) ? currentNavVal.toFixed(2) : currentNavVal.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')}</span>
+                          ) : (
+                            <span className="text-amber-400 text-xs font-normal">NAV unavailable</span>
+                          )}
                           <button
                             id={`sync-holding-${holding.schemeCode}`}
                             onClick={(e) => {
@@ -336,10 +344,12 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                           </button>
                         </div>
                         <div className="flex items-center justify-end gap-1.5 text-[11px] font-medium mt-0.5">
-                          <span className={isDayUp ? 'text-emerald-400' : 'text-rose-400'}>
-                            {isDayUp ? '+' : ''}{navChange.toFixed(2)}% (1D)
-                          </span>
-                          {holding.navDate && (
+                          {currentNavVal > 0 && navChange !== 0 && (
+                            <span className={isDayUp ? 'text-emerald-400' : 'text-rose-400'}>
+                              {isDayUp ? '+' : ''}{navChange.toFixed(2)}% (1D)
+                            </span>
+                          )}
+                          {holding.navDate && currentNavVal > 0 && (
                             <span className="text-neutral-500 text-[10px]" title={`NAV Date: ${formatNavDateDisplay(holding.navDate)}`}>
                               • {formatNavDateShort(holding.navDate)}
                             </span>
@@ -371,7 +381,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                       {/* XIRR */}
                       <td className={`${rowPy} px-3 text-right whitespace-nowrap`}>
                         <span className="px-2 py-0.5 rounded-md font-bold font-mono text-xs bg-teal-500/10 text-teal-300 border border-teal-500/20">
-                          {xirrVal > 0 ? `+${xirrVal.toFixed(2)}%` : `${xirrVal.toFixed(2)}%`}
+                          {xirrVal !== null ? (xirrVal > 0 ? `+${xirrVal.toFixed(2)}%` : `${xirrVal.toFixed(2)}%`) : 'N/A'}
                         </span>
                       </td>
 

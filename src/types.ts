@@ -24,7 +24,19 @@ export interface NavRecord {
   salePrice?: number;
 }
 
-export type TransactionType = 'SIP' | 'LUMPSUM' | 'REDEMPTION' | 'SWITCH_IN' | 'SWITCH_OUT' | 'DIVIDEND_REINVEST';
+export type TransactionType = 
+  | 'SIP' 
+  | 'LUMPSUM' 
+  | 'REDEMPTION' 
+  | 'SWITCH_IN' 
+  | 'SWITCH_OUT' 
+  | 'DIVIDEND_REINVEST'
+  | 'DIVIDEND_PAYOUT'
+  | 'REVERSAL'
+  | 'CHARGE'
+  | 'STAMP_DUTY'
+  | 'SEGREGATION'
+  | 'UNKNOWN';
 
 export interface TransactionRecord {
   id: string;
@@ -62,7 +74,7 @@ export interface PortfolioHolding {
   totalGainPercentage: number;
   dayGain: number;
   dayGainPercentage: number;
-  xirr: number;
+  xirr: number | null;
   allocationPercentage: number;
   transactionsCount: number;
   lastTransactionDate: string;
@@ -75,9 +87,9 @@ export interface PortfolioSummary {
   totalGainPercentage: number;
   dayGain: number;
   dayGainPercentage: number;
-  xirr: number;
-  niftyXirr?: number;
-  alphaVsNifty?: number;
+  xirr: number | null;
+  niftyXirr?: number | null;
+  alphaVsNifty?: number | null;
   niftyCurrentValue?: number;
   holdingsCount: number;
   folionsCount: number;
@@ -174,10 +186,25 @@ export interface TaxComputation {
     taxRateEstimated: number; // slab approx 30%
     taxPayable: number;
   };
+  realizedSummary: {
+    totalRealizedGain: number;
+    realizedLtcg: number;
+    realizedStcg: number;
+    realizedDebt: number;
+    realizedTaxPayable: number;
+  };
+  unrealizedSummary: {
+    totalUnrealizedGain: number;
+    unrealizedLtcg: number;
+    unrealizedStcg: number;
+    unrealizedDebt: number;
+    unrealizedTaxPayable: number;
+  };
   totalEstimatedTax: number;
   unrealizedLtcg: number;
   unrealizedStcg: number;
   taxHarvestingOpportunity: number;
+  grandfatheringSavingsTotal?: number;
 }
 
 export interface AllocationStrategy {
@@ -354,12 +381,17 @@ export interface CapitalGainsAuditRow {
   units: number;
   buyNav: number;
   sellNav: number;
+  saleNav?: number; // alias for sellNav
+  currentNav?: number; // alias for valuation NAV
   purchaseCost: number;
   saleValue: number;
   grossGain: number;
+  gainOrLoss?: number; // alias for grossGain
   fmv2018Nav?: number;
+  grandfatheredCost?: number;
   taxableGain: number;
   applicableTaxRatePct: number;
   estimatedTax: number;
+  sectionCode?: string; // '112A', '111A', '50AA', etc.
 }
 

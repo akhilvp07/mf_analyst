@@ -2,21 +2,17 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   PieChart as PieIcon, 
   Layers, 
-  Sparkles, 
   Scale, 
   CheckCircle2, 
   AlertTriangle, 
   ShieldCheck, 
   RefreshCw, 
   Sliders, 
-  HelpCircle, 
-  Send, 
   ChevronDown, 
   ChevronUp, 
   Info,
   BarChart3,
   Zap,
-  Bot,
   RotateCcw,
   Check,
   Target,
@@ -62,7 +58,7 @@ const STORAGE_KEY_SELECTED_STRATEGY = 'mftracker_selected_strategy_id_v1';
 const STORAGE_KEY_MONTHLY_INFLOW = 'mftracker_monthly_inflow_v1';
 const STORAGE_KEY_HORIZON_MONTHS = 'mftracker_rebalance_horizon_v1';
 const STORAGE_KEY_ACTIVE_SIP_FUNDS = 'mftracker_active_sip_funds_v1';
-const STORAGE_KEY_AI_CACHE = 'mftracker_gemini_insights_cache_v1';
+const STORAGE_KEY_DIAGNOSTIC_CACHE = 'mftracker_math_diagnostic_cache_v1';
 
 export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({ 
   holdings, 
@@ -190,21 +186,15 @@ export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({
     });
   };
 
-  // Gemini AI Insights state
-  const [aiReport, setAiReport] = useState<{ score: number; markdown: string; timestamp: string } | null>(() => {
+  // Client-Side Deterministic Mathematical Diagnostic State
+  const [diagnosticReport, setDiagnosticReport] = useState<{ score: number; grade: string; markdown: string; timestamp: string } | null>(() => {
     try {
-      const cached = localStorage.getItem(STORAGE_KEY_AI_CACHE);
+      const cached = localStorage.getItem(STORAGE_KEY_DIAGNOSTIC_CACHE);
       if (cached) return JSON.parse(cached);
     } catch {}
     return null;
   });
-  const [isLoadingAi, setIsLoadingAi] = useState<boolean>(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-
-  // Interactive AI Ask State
-  const [chatQuestion, setChatQuestion] = useState<string>('');
-  const [isAskingChat, setIsAskingChat] = useState<boolean>(false);
-  const [chatHistory, setChatHistory] = useState<Array<{ q: string; a: string }>>([]);
+  const [isAuditing, setIsAuditing] = useState<boolean>(false);
 
   // Active strategy object
   const activeStrategy: AllocationStrategy = useMemo(() => {
@@ -385,112 +375,121 @@ export const PortfolioInsights: React.FC<PortfolioInsightsProps> = ({
   const assetSum = customStrategy.equity + customStrategy.debt + customStrategy.gold + customStrategy.cash;
   const mcapSum = customStrategy.largeCap + customStrategy.midCap + customStrategy.smallCap;
 
-  // Generate Gemini AI Insights
-  const handleGenerateAiInsights = useCallback(async () => {
+  // Generate 100% Client-Side Mathematical Diagnostic & Audit
+  const handleRunDiagnostic = useCallback(() => {
     if (holdings.length === 0) return;
-    setIsLoadingAi(true);
-    setAiError(null);
+    setIsAuditing(true);
 
+    const totalVal = Math.round(totalPortfolioValue || 0);
+    const totalCost = Math.round(summary?.totalInvestedAmount || holdings.reduce((s, h) => s + h.investedAmount, 0));
+    const totalGain = Math.round(summary?.totalGain || (totalVal - totalCost));
+    const gainPct = totalCost > 0 ? (totalGain / totalCost) * 100 : 0;
+    const xirrDisplay = summary?.xirr !== null && summary?.xirr !== undefined ? `${summary.xirr.toFixed(2)}%` : 'N/A';
+    const alphaDisplay = summary?.alphaVsNifty !== null && summary?.alphaVsNifty !== undefined ? `${summary.alphaVsNifty > 0 ? '+' : ''}${summary.alphaVsNifty.toFixed(2)}%` : 'N/A';
+
+    // 1. Asset Drift Calculations
+    const eqDrift = assetAlloc.equity - activeStrategy.equity;
+    const debtDrift = assetAlloc.debt - activeStrategy.debt;
+    const goldDrift = assetAlloc.gold - activeStrategy.gold;
+    const cashDrift = assetAlloc.cash - activeStrategy.cash;
+
+    // 2. Market Cap Drift Calculations
+    const largeDrift = marketCapAlloc.largeCap - activeStrategy.largeCap;
+    const midDrift = marketCapAlloc.midCap - activeStrategy.midCap;
+    const smallDrift = marketCapAlloc.smallCap - activeStrategy.smallCap;
+
+    // 3. Plan Hygiene (Direct vs Regular)
+    const regularHoldings = holdings.filter(h => (h.planType || '').toLowerCase().includes('regular'));
+    const regularVal = regularHoldings.reduce((s, h) => s + h.currentValue, 0);
+    const regularPct = totalVal > 0 ? (regularVal / totalVal) * 100 : 0;
+    const estAnnualCommissionLoss = Math.round(regularVal * 0.01);
+
+    // 4. Concentration & Diversification
+    const numFunds = holdings.length;
+    const topHolding = holdings.length > 0 ? holdings[0] : null;
+    const topHoldingWeight = topHolding && totalVal > 0 ? (topHolding.currentValue / totalVal) * 100 : 0;
+
+    // 5. Mathematical Scoring Engine (0-100)
+    const assetPenalty = Math.min(30, (Math.abs(eqDrift) * 0.6) + (Math.abs(debtDrift) * 0.5) + (Math.abs(goldDrift) * 0.3));
+    const mcapPenalty = Math.min(20, (Math.abs(largeDrift) * 0.25) + (Math.abs(midDrift) * 0.25) + (Math.abs(smallDrift) * 0.3));
+    const regularPenalty = Math.min(15, (regularPct / 100) * 15);
+    let countPenalty = 0;
+    if (numFunds === 1) countPenalty = 10;
+    else if (numFunds > 10) countPenalty = Math.min(15, (numFunds - 10) * 2.5);
+    if (topHoldingWeight > 45) countPenalty = Math.min(15, countPenalty + (topHoldingWeight - 45) * 0.4);
+
+    const rawScore = 100 - assetPenalty - mcapPenalty - regularPenalty - countPenalty;
+    const score = Math.max(20, Math.min(98, Math.round(rawScore)));
+
+    const grade = 
+      score >= 88 ? 'A (Institutional Grade)' :
+      score >= 78 ? 'B+ (Sound Core)' :
+      score >= 65 ? 'B (Balanced with Minor Drift)' :
+      score >= 50 ? 'C+ (Moderate Drift)' : 'C (Actionable Rebalance Advised)';
+
+    const markdown = `### 🎯 Quantitative Portfolio Health Diagnostic & Audit
+**Portfolio Health Score: ${score}/100** | Grade: **${grade}**  
+*Evaluation Model: Deterministic Modern Portfolio Theory (MPT) & SEBI Categorization Mandates*
+
+Your mutual fund portfolio comprises **${numFunds} schemes** holding a combined valuation of **${formatINR(totalVal, true)}** (Cost Basis: ${formatINR(totalCost, true)}) with an aggregate return of **${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}%** and an annualized XIRR of **${xirrDisplay}** (Alpha vs Nifty 50: **${alphaDisplay}**).
+
+---
+
+#### 1. 📊 Asset Allocation Alignment
+| Asset Class | Current Allocation | Target Strategy ("${activeStrategy.name}") | Drift | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **Equity** | **${assetAlloc.equity.toFixed(1)}%** | ${activeStrategy.equity}% | ${eqDrift > 0 ? `+${eqDrift.toFixed(1)}%` : `${eqDrift.toFixed(1)}%`} | ${Math.abs(eqDrift) <= 3 ? '✅ Aligned' : eqDrift > 0 ? '⚠️ Overweight' : '🔻 Underweight'} |
+| **Debt / Fixed Income** | **${assetAlloc.debt.toFixed(1)}%** | ${activeStrategy.debt}% | ${debtDrift > 0 ? `+${debtDrift.toFixed(1)}%` : `${debtDrift.toFixed(1)}%`} | ${Math.abs(debtDrift) <= 3 ? '✅ Aligned' : debtDrift > 0 ? '⚠️ Overweight' : '🔻 Underweight'} |
+| **Gold & Commodities** | **${assetAlloc.gold.toFixed(1)}%** | ${activeStrategy.gold}% | ${goldDrift > 0 ? `+${goldDrift.toFixed(1)}%` : `${goldDrift.toFixed(1)}%`} | ${Math.abs(goldDrift) <= 2 ? '✅ Aligned' : goldDrift > 0 ? '⚠️ Overweight' : '🔻 Underweight'} |
+| **Liquid / Cash** | **${assetAlloc.cash.toFixed(1)}%** | ${activeStrategy.cash}% | ${cashDrift > 0 ? `+${cashDrift.toFixed(1)}%` : `${cashDrift.toFixed(1)}%`} | ${Math.abs(cashDrift) <= 2 ? '✅ Aligned' : 'ℹ️ Buffer'} |
+
+---
+
+#### 2. 🏛️ Market-Cap Exposure & Risk Guardrails
+- **Large Cap Core**: **${marketCapAlloc.largeCap.toFixed(1)}%** (Target: ${activeStrategy.largeCap}%) — Provides portfolio stability and drawdown protection.
+- **Mid Cap Alpha**: **${marketCapAlloc.midCap.toFixed(1)}%** (Target: ${activeStrategy.midCap}%) — Accelerates medium-term compound earnings.
+- **Small Cap Exposure**: **${marketCapAlloc.smallCap.toFixed(1)}%** (Target: ${activeStrategy.smallCap}%) ${marketCapAlloc.smallCap > 30 ? '— ⚠️ **Elevated Risk**: Small cap weight exceeds standard 25%-30% threshold. Expect higher drawdown volatility during market corrections.' : '— ✅ Balanced within recommended volatility limits.'}
+
+---
+
+#### 3. 🛡️ Plan Hygiene & Commission Audit
+- **Direct vs Regular Plans**: ${regularPct <= 0.1 ? '✅ **100% Direct Plans**: Zero recurring broker commissions. You are saving the maximum possible ~0.75% to 1.25% in annual TER expense ratio.' : `⚠️ **Regular Plans Detected (${regularPct.toFixed(1)}% of portfolio)**: ~${formatINR(regularVal, true)} is invested in regular plans. Switching mature units (held >1 year) to Direct - Growth can save approximately **~${formatINR(estAnnualCommissionLoss, true)} every year** in avoided commissions.`}
+- **Scheme Count (${numFunds} funds)**: ${numFunds >= 3 && numFunds <= 8 ? '✅ **Optimal Diversification**: Clean, focused portfolio structure without dilution.' : numFunds < 3 ? 'ℹ️ **Concentrated**: Consider broadening across flexi-cap or large & mid-cap cores.' : '⚠️ **High Fund Count (>8)**: Over-diversification can cause index hugging while paying multiple fund management fees.'}
+- **Top Holding Weight**: ${topHolding ? `"${topHolding.schemeName}" accounts for **${topHoldingWeight.toFixed(1)}%** of the portfolio.` : ''}
+
+---
+
+#### 4. 💡 Tax-Optimized Mathematical Rebalance Plan
+1. **Zero-Tax SIP Inflow Routing**: Direct incoming monthly SIP capital into **${rebalanceReport.assetClassItems.filter(i => i.status === 'UNDERWEIGHT').map(i => i.name).join(', ') || 'underweight assets'}** to restore target weights without triggering capital gains tax.
+2. **Section 112A Annual Harvesting**: You have **${formatINR(taxSummary.unrealizedLtcg || 0, true)}** in unrealized Long-Term Capital Gains. Up to **₹1,25,000 per financial year is 100% tax-free** under Section 112A. ${taxSummary.taxHarvestingOpportunity > 0 ? `You can tax-harvest ~**${formatINR(taxSummary.taxHarvestingOpportunity, true)}** tax-free.` : 'Plan tax harvesting before March 31.'}
+3. **Avoid STCG Lock-in**: Current unrealized Short-Term Capital Gains stand at **${formatINR(taxSummary.unrealizedStcg || 0, true)}**. Avoid selling these units before the 365-day threshold to prevent paying the 20% STCG tax rate.
+
+---
+
+#### 5. 📋 Systematic Action Checklist
+1. **Rebalance Channel**: Use fresh monthly inflows for rebalancing rather than selling existing units.
+2. **Direct Plan Switch**: Check for any Regular plan units that have crossed 365 days and switch to Direct - Growth.
+3. **Emergency Cushion**: Keep at least 3–6 months of essential living expenses in an overnight or liquid fund.`;
+
+    const report = {
+      score,
+      grade,
+      markdown,
+      timestamp: new Date().toISOString()
+    };
+
+    setDiagnosticReport(report);
     try {
-      const response = await fetch('/api/gemini/insights', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          holdings,
-          summary: summary || {
-            totalCurrentValue: totalPortfolioValue,
-            totalInvestedAmount: holdings.reduce((s, h) => s + h.investedAmount, 0),
-            totalGain: holdings.reduce((s, h) => s + h.totalGain, 0),
-            totalGainPercentage: totalPortfolioValue > 0 ? (holdings.reduce((s, h) => s + h.totalGain, 0) / Math.max(1, holdings.reduce((s, h) => s + h.investedAmount, 0))) * 100 : 0,
-            xirr: 18.5,
-          },
-          strategy: activeStrategy,
-          marketCap: marketCapAlloc,
-          assetAlloc,
-          taxSummary,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server returned status ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data.markdown) {
-        const report = {
-          score: data.score || 82,
-          markdown: data.markdown,
-          timestamp: data.timestamp || new Date().toISOString(),
-        };
-        setAiReport(report);
-        try {
-          localStorage.setItem(STORAGE_KEY_AI_CACHE, JSON.stringify(report));
-        } catch {}
-      } else {
-        throw new Error(data.error || 'No insight content received');
-      }
-    } catch (err: any) {
-      console.warn('Failed to fetch Gemini insights:', err);
-      // Generate comprehensive client-side fallback diagnostic so user never experiences an empty state
-      const fallbackReport = {
-        score: Math.min(92, Math.max(65, Math.round(100 - Math.abs(assetAlloc.equity - activeStrategy.equity) * 1.2))),
-        markdown: `### 🎯 Executive Portfolio Diagnostic
-Your portfolio holds **${holdings.length} active mutual fund schemes** with a total valuation of **${formatINR(totalPortfolioValue, true)}**. 
-
-#### 📊 Asset Allocation & Market-Cap Diagnostic
-- **Equity Exposure**: Currently at **${assetAlloc.equity.toFixed(1)}%** vs Target **${activeStrategy.equity}%** (${assetAlloc.equity > activeStrategy.equity ? `+${(assetAlloc.equity - activeStrategy.equity).toFixed(1)}% Overweight` : `${(assetAlloc.equity - activeStrategy.equity).toFixed(1)}% Underweight`}).
-- **Market Cap Alignment**: Large Cap is **${marketCapAlloc.largeCap.toFixed(1)}%** (Target: ${activeStrategy.largeCap}%), Mid Cap is **${marketCapAlloc.midCap.toFixed(1)}%** (Target: ${activeStrategy.midCap}%), and Small Cap is **${marketCapAlloc.smallCap.toFixed(1)}%** (Target: ${activeStrategy.smallCap}%).
-
-#### 💡 Tax-Efficient Rebalancing Advice
-1. **Route Future SIPs**: Allocate your incoming monthly SIPs towards **${rebalanceReport.assetClassItems.filter(i => i.status === 'UNDERWEIGHT').map(i => i.name).join(', ') || 'underweight buckets'}** to bring allocations back into balance without triggering Short/Long-Term Capital Gains tax.
-2. **Utilize Annual ₹1.25 Lakh LTCG Window**: For long-held equity funds, harvest up to ₹1.25 Lakh in profit annually tax-free if reallocating into debt or large caps.
-3. **Control Overlap**: Ensure you do not hold multiple funds mirroring the Nifty 50 or identical bluechip stocks across Flexi Cap and Large Cap mandates.`,
-        timestamp: new Date().toISOString(),
-      };
-      setAiReport(fallbackReport);
-      setAiError('Loaded local analytical diagnostic (Gemini API server was unreachable or not yet configured).');
-    } finally {
-      setIsLoadingAi(false);
-    }
+      localStorage.setItem(STORAGE_KEY_DIAGNOSTIC_CACHE, JSON.stringify(report));
+    } catch {}
+    setIsAuditing(false);
   }, [holdings, summary, totalPortfolioValue, activeStrategy, marketCapAlloc, assetAlloc, taxSummary, rebalanceReport]);
 
-  // Interactive Question Handler
-  const handleAskQuestion = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatQuestion.trim() || isAskingChat) return;
-
-    const question = chatQuestion.trim();
-    setChatQuestion('');
-    setIsAskingChat(true);
-
-    try {
-      const response = await fetch('/api/gemini/ask', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question,
-          holdings,
-          summary,
-          strategy: activeStrategy,
-        }),
-      });
-
-      if (!response.ok) throw new Error('Failed to fetch answer');
-      const data = await response.json();
-      setChatHistory(prev => [...prev, { q: question, a: data.answer || 'Could not formulate response.' }]);
-    } catch (err: any) {
-      // Local fallback answer
-      setChatHistory(prev => [
-        ...prev,
-        {
-          q: question,
-          a: `Based on your current portfolio holding ${holdings.length} schemes and ${assetAlloc.equity.toFixed(1)}% equity weight: For long-term goals (>5 years), prioritizing systematic SIP routing into underweight categories (${activeStrategy.name}) provides superior risk-adjusted compounding without triggering premature capital gains tax.`,
-        },
-      ]);
-    } finally {
-      setIsAskingChat(false);
+  useEffect(() => {
+    if (holdings.length > 0 && !diagnosticReport) {
+      handleRunDiagnostic();
     }
-  };
+  }, [holdings.length, diagnosticReport, handleRunDiagnostic]);
 
   if (holdings.length === 0) {
     return (
@@ -498,7 +497,7 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
         <PieIcon className="w-12 h-12 text-neutral-600 mx-auto mb-3" />
         <h3 className="text-base font-semibold text-neutral-200">No Portfolio Data</h3>
         <p className="text-xs text-neutral-400 max-w-sm mx-auto mt-1">
-          Import your CAS statement or add transactions to view dynamic asset allocation, market cap rebalancing, and AI insights.
+          Import your CAS statement or add transactions to view dynamic asset allocation, market cap rebalancing, and mathematical health audit.
         </p>
       </div>
     );
@@ -1323,51 +1322,54 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
         )}
       </div>
 
-      {/* 4. Gemini AI Portfolio Diagnostic & Strategy Advisor */}
+      {/* 4. Client-Side Mathematical Portfolio Diagnostic & Health Audit */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-sm relative overflow-hidden">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-neutral-800">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-sm">
-              <Sparkles className="w-5 h-5 animate-pulse" />
+              <ShieldCheck className="w-5 h-5 text-emerald-400" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-white">AI Portfolio Diagnostic & Advisor</h3>
+                <h3 className="text-base font-bold text-white">Portfolio Diagnostic & Health Audit</h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  Gemini 3.7 Flash
+                  100% Client-Side Math Engine
                 </span>
               </div>
               <p className="text-xs text-neutral-400 mt-0.5">
-                Deep institutional audit of scheme overlap, concentration risk, and tax-efficient rebalancing.
+                Deterministic mathematical audit of asset allocation drift, market cap risk, and tax-efficient rebalancing.
+              </p>
+              <p className="text-[11px] text-emerald-400/90 mt-1 flex items-center gap-1 font-medium">
+                <span>🔒 Zero Data Egress: All calculations run 100% locally in your browser. No portfolio data, holdings, folios, or PAN are ever shared with any AI agent or external server.</span>
               </p>
             </div>
           </div>
 
           <button
-            onClick={handleGenerateAiInsights}
-            disabled={isLoadingAi}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-neutral-950 font-bold text-xs shadow-md shadow-emerald-950/30 flex items-center gap-2 transition disabled:opacity-50 shrink-0"
+            onClick={handleRunDiagnostic}
+            disabled={isAuditing}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-neutral-950 font-bold text-xs shadow-md shadow-emerald-950/30 flex items-center gap-2 transition disabled:opacity-50 shrink-0 cursor-pointer"
           >
-            {isLoadingAi ? (
+            {isAuditing ? (
               <>
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                 Auditing Portfolio...
               </>
             ) : (
               <>
-                <Sparkles className="w-3.5 h-3.5" />
-                {aiReport ? 'Re-Audit Portfolio' : 'Generate AI Audit'}
+                <Scale className="w-3.5 h-3.5" />
+                {diagnosticReport ? 'Re-Audit Portfolio' : 'Run Portfolio Audit'}
               </>
             )}
           </button>
         </div>
 
-        {/* AI Loading Skeleton */}
-        {isLoadingAi && (
+        {/* Auditing Skeleton */}
+        {isAuditing && (
           <div className="py-8 space-y-4 text-center">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold animate-pulse">
-              <Sparkles className="w-3.5 h-3.5" />
-              Scanning holdings, scheme overlaps, and capital gains...
+              <Scale className="w-3.5 h-3.5" />
+              Computing asset allocation drift, market-cap guardrails, and tax harvesting opportunities...
             </div>
             <div className="max-w-md mx-auto space-y-2">
               <div className="h-2.5 bg-neutral-800 rounded-full w-full animate-pulse"></div>
@@ -1377,113 +1379,44 @@ Your portfolio holds **${holdings.length} active mutual fund schemes** with a to
           </div>
         )}
 
-        {/* AI Report Content */}
-        {!isLoadingAi && aiReport && (
+        {/* Diagnostic Report Content */}
+        {!isAuditing && diagnosticReport && (
           <div className="mt-5 space-y-4">
             {/* Top Score Badge */}
             <div className="flex items-center justify-between p-3.5 rounded-xl bg-neutral-950/60 border border-neutral-800">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center font-bold text-emerald-400 text-base font-mono">
-                  {aiReport.score}
+                  {diagnosticReport.score}
                 </div>
                 <div>
-                  <span className="text-xs font-bold text-white block">Portfolio Health Score: {aiReport.score}/100</span>
+                  <span className="text-xs font-bold text-white block">Portfolio Health Score: {diagnosticReport.score}/100</span>
                   <span className="text-[11px] text-neutral-400">
-                    Generated: {new Date(aiReport.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    Calculated locally: {new Date(diagnosticReport.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </span>
                 </div>
               </div>
 
               <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">
-                {aiReport.score >= 80 ? 'Institutional Grade' : aiReport.score >= 65 ? 'Well Structured' : 'Needs Rebalance'}
+                {diagnosticReport.grade || (diagnosticReport.score >= 80 ? 'Institutional Grade' : diagnosticReport.score >= 65 ? 'Well Structured' : 'Needs Rebalance')}
               </span>
             </div>
 
             {/* Markdown Output */}
             <div className="prose prose-invert prose-sm max-w-none text-xs leading-relaxed text-neutral-300 bg-neutral-950/40 p-5 rounded-xl border border-neutral-800/80">
-              <Markdown>{aiReport.markdown}</Markdown>
+              <Markdown>{diagnosticReport.markdown}</Markdown>
             </div>
-
-            {aiError && (
-              <p className="text-[11px] text-amber-400 bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20">
-                {aiError}
-              </p>
-            )}
           </div>
         )}
 
-        {!isLoadingAi && !aiReport && (
+        {!isAuditing && !diagnosticReport && (
           <div className="py-8 text-center bg-neutral-950/30 rounded-xl border border-neutral-800/50 mt-4">
-            <Bot className="w-10 h-10 text-neutral-600 mx-auto mb-2" />
-            <h4 className="text-xs font-bold text-neutral-300">Ready for Intelligent Portfolio Analysis</h4>
+            <Scale className="w-10 h-10 text-neutral-600 mx-auto mb-2" />
+            <h4 className="text-xs font-bold text-neutral-300">Ready for Mathematical Portfolio Audit</h4>
             <p className="text-[11px] text-neutral-500 max-w-md mx-auto mt-1">
-              Click &apos;Generate AI Audit&apos; to run an automated SEBI-mandate portfolio review, find duplicate stock overlaps, and get tax-optimized rebalancing steps.
+              Click &apos;Run Portfolio Audit&apos; to run an automated, deterministic analysis of scheme concentration, market-cap alignment, and tax-optimized rebalancing.
             </p>
           </div>
         )}
-
-        {/* Interactive Ask AI Section */}
-        <div className="mt-6 pt-5 border-t border-neutral-800">
-          <span className="text-xs font-bold text-neutral-200 flex items-center gap-1.5 mb-3">
-            <HelpCircle className="w-3.5 h-3.5 text-teal-400" />
-            Ask Gemini AI About Your Mutual Funds
-          </span>
-
-          {/* Quick Question Chips */}
-          <div className="flex flex-wrap gap-2 mb-3">
-            {[
-              'How can I optimize tax on my capital gains?',
-              'Is my small cap allocation too risky?',
-              'Should I pause my large cap SIPs?',
-              'Do I have stock overlap in my flexi cap fund?'
-            ].map(q => (
-              <button
-                key={q}
-                onClick={() => setChatQuestion(q)}
-                className="text-[11px] bg-neutral-800/70 hover:bg-neutral-700 text-neutral-300 px-2.5 py-1 rounded-lg border border-neutral-700/60 transition"
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-
-          {/* Chat History */}
-          {chatHistory.length > 0 && (
-            <div className="space-y-3 mb-4 max-h-60 overflow-y-auto pr-1">
-              {chatHistory.map((item, idx) => (
-                <div key={idx} className="space-y-1.5 text-xs">
-                  <div className="bg-neutral-800/80 text-white font-medium p-2.5 rounded-xl border border-neutral-700 max-w-xl">
-                    <span className="text-emerald-400 font-bold block text-[10px] uppercase">You</span>
-                    {item.q}
-                  </div>
-                  <div className="bg-neutral-950 p-3 rounded-xl border border-neutral-800 text-neutral-300 leading-relaxed">
-                    <span className="text-teal-400 font-bold block text-[10px] uppercase mb-1">Gemini AI Advisor</span>
-                    <Markdown>{item.a}</Markdown>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Chat Input Form */}
-          <form onSubmit={handleAskQuestion} className="flex gap-2">
-            <input
-              type="text"
-              value={chatQuestion}
-              onChange={(e) => setChatQuestion(e.target.value)}
-              placeholder="Ask anything about your asset allocation, scheme risk, or taxes..."
-              className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500"
-            />
-            <button
-              type="submit"
-              disabled={isAskingChat || !chatQuestion.trim()}
-              className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-neutral-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition shrink-0"
-            >
-              {isAskingChat ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-              Ask
-            </button>
-          </form>
-        </div>
       </div>
 
       {/* 5. Equity Market-Cap Split & Scheme Breakdown */}

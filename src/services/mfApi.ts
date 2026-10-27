@@ -678,11 +678,10 @@ export function mergeAmfiAndApiDetails(
   const isAmfiFresherOrEqual = !!(amfiRec && amfiDate && (!apiDate || amfiDate >= apiDate));
 
   if (isAmfiFresherOrEqual && amfiRec) {
-    const cNav = amfiRec.currentNav > 0 ? amfiRec.currentNav : (!isNaN(apiNav) && apiNav > 0 ? apiNav : (fallback.currentNav || 85.0));
+    const cNav = amfiRec.currentNav > 0 ? amfiRec.currentNav : (!isNaN(apiNav) && apiNav > 0 ? apiNav : (fallback.currentNav || 0));
     let change1D = 0;
     if (!isNaN(apiNav) && apiNav > 0 && cNav > 0) {
       if (apiDate && amfiDate > apiDate) {
-        // apiNav represents the previous trading day's closing NAV (e.g. 18-Sep close vs 21-Sep AMFI)
         change1D = ((cNav - apiNav) / apiNav) * 100;
       } else if (!isNaN(apiPrevNav) && apiPrevNav > 0) {
         change1D = ((cNav - apiPrevNav) / apiPrevNav) * 100;
@@ -701,7 +700,7 @@ export function mergeAmfiAndApiDetails(
       planType: amfiRec.planType || fallback.planType || 'Direct',
       optionType: amfiRec.optionType || fallback.optionType || 'Growth',
       currentNav: cNav,
-      navDate: amfiRec.navDate || fallback.navDate || '2026-09-21',
+      navDate: amfiRec.navDate || fallback.navDate || '',
       navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
       fundHouse,
       category,
@@ -721,7 +720,7 @@ export function mergeAmfiAndApiDetails(
       planType: fallback.planType || 'Direct',
       optionType: fallback.optionType || 'Growth',
       currentNav: apiNav,
-      navDate: apiDate || fallback.navDate || '2026-09-18',
+      navDate: apiDate || fallback.navDate || '',
       navChange1D: isNaN(change1D) ? 0 : Math.round(change1D * 100) / 100,
       fundHouse,
       category,
@@ -735,8 +734,8 @@ export function mergeAmfiAndApiDetails(
     schemeName: cleanFundDisplayName(fallback.schemeName),
     planType: fallback.planType || 'Direct',
     optionType: fallback.optionType || 'Growth',
-    currentNav: fallback.currentNav || 85.0,
-    navDate: fallback.navDate || '2026-09-21',
+    currentNav: fallback.currentNav || 0,
+    navDate: fallback.navDate || '',
     navChange1D: fallback.navChange1D || 0,
     fundHouse: fallback.fundHouse || 'Mutual Fund',
     category: fallback.category || 'Equity - Flexi Cap',

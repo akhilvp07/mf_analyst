@@ -9,74 +9,97 @@ import {
   PortfolioConcentration,
   TaxComputation
 } from '../types';
+import { runFifoLotEngine } from './fifoLotEngine';
+import { isEquityOrientedSchemeSafe } from './taxConfig';
 
 /**
- * Universal safe date parser for all Indian (DD-MM-YYYY, DD/MM/YYYY, DD-Mon-YYYY) and standard formats.
- * Always returns a valid Date object.
+ * Strict date parser for Indian financial statements (DD-MM-YYYY, DD/MM/YYYY, DD-Mon-YYYY) and ISO formats.
+ * Returns null if the date is invalid (e.g. 31-Feb) or cannot be parsed.
+ * Never silently returns today's date!
  */
-export function parseDateSafe(dateInput: string | number | Date | undefined): Date {
-  if (!dateInput) return new Date();
+export function parseDateStrict(dateInput: string | number | Date | undefined): Date | null {
+  if (!dateInput) return null;
   if (dateInput instanceof Date) {
-    return isNaN(dateInput.getTime()) ? new Date() : dateInput;
+    return isNaN(dateInput.getTime()) ? null : dateInput;
   }
   if (typeof dateInput === 'number') {
     const d = new Date(dateInput);
-    return isNaN(d.getTime()) ? new Date() : d;
+    return isNaN(d.getTime()) ? null : d;
   }
 
   const str = String(dateInput).trim();
-  if (!str) return new Date();
+  if (!str) return null;
 
-  // Try direct standard ISO parse if YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}(?:T|\b)/.test(str)) {
-    const d = new Date(str);
-    if (!isNaN(d.getTime())) return d;
+  // Try standard YYYY-MM-DD
+  const ymdMatch = str.match(/^(\d{4})[-\s/.](\d{1,2})[-\s/.](\d{1,2})(?:[T\s].*)?$/);
+  if (ymdMatch) {
+    const y = parseInt(ymdMatch[1], 10);
+    const m = parseInt(ymdMatch[2], 10);
+    const d = parseInt(ymdMatch[3], 10);
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      const dateObj = new Date(Date.UTC(y, m - 1, d));
+      if (dateObj.getUTCFullYear() === y && dateObj.getUTCMonth() === m - 1 && dateObj.getUTCDate() === d) {
+        return dateObj;
+      }
+    }
+    return null;
   }
 
-  const monthMap: Record<string, string> = {
-    jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
-    jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12'
+  const monthMap: Record<string, number> = {
+    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
   };
 
-  // Match DD-MMM-YYYY or DD MMM YYYY or DD-MMM-YY (e.g. 15-May-2023, 15-MAY-23, 15 May 2023)
-  const dMonY = str.match(/^(\d{1,2})[-\s/]([a-zA-Z]{3,9})[-\s/](\d{2,4})/);
+  // Match DD-MMM-YYYY or DD MMM YYYY or DD-MMM-YY (e.g. 15-May-2023, 15-MAY-23)
+  const dMonY = str.match(/^(\d{1,2})[-\s/]([a-zA-Z]{3,9})[-\s/](\d{2,4})(?:[T\s].*)?$/);
   if (dMonY) {
-    const day = dMonY[1].padStart(2, '0');
+    const day = parseInt(dMonY[1], 10);
     const monKey = dMonY[2].substring(0, 3).toLowerCase();
-    const monNum = monthMap[monKey] || '01';
-    let year = dMonY[3];
-    if (year.length === 2) {
-      year = parseInt(year, 10) >= 70 ? `19${year}` : `20${year}`;
+    const monIdx = monthMap[monKey];
+    if (monIdx !== undefined) {
+      let y = parseInt(dMonY[3], 10);
+      if (dMonY[3].length === 2) {
+        y = y >= 70 ? 1900 + y : 2000 + y;
+      }
+      const dateObj = new Date(Date.UTC(y, monIdx, day));
+      if (dateObj.getUTCFullYear() === y && dateObj.getUTCMonth() === monIdx && dateObj.getUTCDate() === day) {
+        return dateObj;
+      }
     }
-    const d = new Date(`${year}-${monNum}-${day}T00:00:00Z`);
-    if (!isNaN(d.getTime())) return d;
+    return null;
   }
 
   // Match DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY
-  const dmy = str.match(/^(\d{1,2})[-\s/.](\d{1,2})[-\s/.](\d{2,4})/);
+  const dmy = str.match(/^(\d{1,2})[-\s/.](\d{1,2})[-\s/.](\d{2,4})(?:[T\s].*)?$/);
   if (dmy) {
-    const day = dmy[1].padStart(2, '0');
-    const month = dmy[2].padStart(2, '0');
-    let year = dmy[3];
-    if (year.length === 2) {
-      year = parseInt(year, 10) >= 70 ? `19${year}` : `20${year}`;
+    const day = parseInt(dmy[1], 10);
+    const month = parseInt(dmy[2], 10);
+    let y = parseInt(dmy[3], 10);
+    if (dmy[3].length === 2) {
+      y = y >= 70 ? 1900 + y : 2000 + y;
     }
-    const d = new Date(`${year}-${month}-${day}T00:00:00Z`);
-    if (!isNaN(d.getTime())) return d;
-  }
-
-  // Match YYYY-MM-DD or YYYY/MM/DD
-  const ymd = str.match(/^(\d{4})[-\s/.](\d{1,2})[-\s/.](\d{1,2})/);
-  if (ymd) {
-    const year = ymd[1];
-    const month = ymd[2].padStart(2, '0');
-    const day = ymd[3].padStart(2, '0');
-    const d = new Date(`${year}-${month}-${day}T00:00:00Z`);
-    if (!isNaN(d.getTime())) return d;
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const dateObj = new Date(Date.UTC(y, month - 1, day));
+      if (dateObj.getUTCFullYear() === y && dateObj.getUTCMonth() === month - 1 && dateObj.getUTCDate() === day) {
+        return dateObj;
+      }
+    }
+    return null;
   }
 
   const fallback = new Date(str);
-  return isNaN(fallback.getTime()) ? new Date() : fallback;
+  return isNaN(fallback.getTime()) ? null : fallback;
+}
+
+/**
+ * Safe date parser returning a valid Date object.
+ * Returns defaultFallback (or 1970 Epoch if invalid) instead of silently defaulting to today's date.
+ */
+export function parseDateSafe(dateInput: string | number | Date | undefined, defaultFallback?: Date): Date {
+  const strict = parseDateStrict(dateInput);
+  if (strict) return strict;
+  if (defaultFallback) return defaultFallback;
+  return new Date(0); // Epoch so invalid dates are identifiable and not treated as today
 }
 
 /**
@@ -90,7 +113,7 @@ export function parseDateToTimestamp(dateInput: string | number | Date | undefin
  * Format NAV date string into clean user-facing format (e.g. "21 Sep 2026")
  */
 export function formatNavDateDisplay(dateInput?: string | Date): string {
-  if (!dateInput) return 'Live';
+  if (!dateInput) return 'NAV unavailable';
   const str = typeof dateInput === 'string' ? dateInput.trim() : '';
   const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (isoMatch) {
@@ -100,7 +123,8 @@ export function formatNavDateDisplay(dateInput?: string | Date): string {
     const day = parseInt(isoMatch[3], 10);
     return `${day} ${month} ${year}`;
   }
-  const d = parseDateSafe(dateInput);
+  const d = parseDateStrict(dateInput);
+  if (!d) return 'NAV unavailable';
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
@@ -117,41 +141,44 @@ export function formatNavDateShort(dateInput?: string | Date): string {
     const day = parseInt(isoMatch[3], 10);
     return `${day} ${month}`;
   }
-  const d = parseDateSafe(dateInput);
+  const d = parseDateStrict(dateInput);
+  if (!d) return '';
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
 /**
  * High-precision XIRR calculation using Newton-Raphson method with adaptive damping and bisection fallback.
- * cashflows: array of { date: Date, amount: number }
- * (investments/purchases are negative, current value or redemption is positive)
+ * cashflows: array of { date: Date | string, amount: number }
+ * - Uses standard 365.0 days/year (matching Excel XIRR, not 365.25).
+ * - Tests convergence on both rate and NPV.
+ * - Returns null on failure / non-convergence (never returns misleading 0% or silent CAGR fallback).
  */
 export function calculateXirr(
   cashflows: { date: Date | string; amount: number }[],
   guess: number = 0.1
-): number {
-  if (!cashflows || cashflows.length < 2) return 0;
+): number | null {
+  if (!cashflows || cashflows.length < 2) return null;
 
-  // Normalize and filter out zero amount flows
+  // Normalize and filter out invalid flows
   const validFlows = cashflows
     .map(f => ({
-      date: parseDateSafe(f.date),
+      date: parseDateStrict(f.date),
       amount: f.amount
     }))
-    .filter(f => f.amount !== 0 && !isNaN(f.amount) && !isNaN(f.date.getTime()));
+    .filter((f): f is { date: Date; amount: number } => f.date !== null && f.amount !== 0 && !isNaN(f.amount));
 
-  if (validFlows.length < 2) return 0;
+  if (validFlows.length < 2) return null;
 
   // Must have at least one positive and one negative cashflow
   const hasPositive = validFlows.some(f => f.amount > 0);
   const hasNegative = validFlows.some(f => f.amount < 0);
-  if (!hasPositive || !hasNegative) return 0;
+  if (!hasPositive || !hasNegative) return null;
 
   const minDate = new Date(Math.min(...validFlows.map(f => f.date.getTime())));
 
-  // Calculate year fraction from minDate
+  // Calculate year fraction using 365.0 days (Excel XIRR standard)
   const flows = validFlows.map(f => ({
-    years: (f.date.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25),
+    years: (f.date.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24 * 365.0),
     amount: f.amount
   }));
 
@@ -177,58 +204,53 @@ export function calculateXirr(
   const maxIterations = 100;
   const tolerance = 1e-6;
 
-  // 1. Newton-Raphson
+  // 1. Newton-Raphson Method
   for (let i = 0; i < maxIterations; i++) {
     const val = npv(rate);
     if (isNaN(val)) break;
     if (Math.abs(val) < tolerance) {
-      return rate * 100; // return as percentage
+      return Number((rate * 100).toFixed(4));
     }
     const deriv = derivativeNpv(rate);
     if (isNaN(deriv) || Math.abs(deriv) < 1e-10) break;
 
     const nextRate = rate - val / deriv;
-    if (nextRate <= -0.99) {
-      rate = (rate - 0.99) / 2;
+    if (nextRate <= -0.999) {
+      rate = (rate - 0.999) / 2;
     } else {
       rate = nextRate;
     }
   }
 
-  // 2. Fallback: Bisection search between -90% and +500%
-  let low = -0.90;
-  let high = 5.0;
+  // 2. Bisection Search fallback between -99% and +1000%
+  let low = -0.99;
+  let high = 10.0;
   let npvLow = npv(low);
   let npvHigh = npv(high);
 
-  if (isNaN(npvLow) || isNaN(npvHigh) || npvLow * npvHigh > 0) {
-    // If bisection range bracket doesn't cross zero, compute simple CAGR
-    const totalInvested = Math.abs(validFlows.filter(f => f.amount < 0).reduce((s, f) => s + f.amount, 0));
-    const finalVal = validFlows.filter(f => f.amount > 0).reduce((s, f) => s + f.amount, 0);
-    const maxYears = Math.max(...flows.map(f => f.years));
-    if (totalInvested > 0 && maxYears > 0) {
-      const cagr = (Math.pow(finalVal / totalInvested, 1 / Math.max(1, maxYears)) - 1) * 100;
-      return isFinite(cagr) ? cagr : 0;
+  if (!isNaN(npvLow) && !isNaN(npvHigh) && npvLow * npvHigh <= 0) {
+    for (let i = 0; i < 80; i++) {
+      const mid = (low + high) / 2;
+      const npvMid = npv(mid);
+      if (Math.abs(npvMid) < tolerance) {
+        return Number((mid * 100).toFixed(4));
+      }
+      if (npvLow * npvMid < 0) {
+        high = mid;
+        npvHigh = npvMid;
+      } else {
+        low = mid;
+        npvLow = npvMid;
+      }
     }
-    return 0;
-  }
-
-  for (let i = 0; i < 60; i++) {
-    const mid = (low + high) / 2;
-    const npvMid = npv(mid);
-    if (Math.abs(npvMid) < tolerance) {
-      return mid * 100;
-    }
-    if (npvLow * npvMid < 0) {
-      high = mid;
-      npvHigh = npvMid;
-    } else {
-      low = mid;
-      npvLow = npvMid;
+    const midRate = (low + high) / 2;
+    if (Math.abs(npv(midRate)) < 1.0) {
+      return Number((midRate * 100).toFixed(4));
     }
   }
 
-  return ((low + high) / 2) * 100;
+  // If no convergence reached, return null (never silently substitute CAGR)
+  return null;
 }
 
 /**
@@ -530,6 +552,142 @@ export function isValidFolioNumber(folio?: string): boolean {
 }
 
 /**
+ * Shared transaction direction & impact evaluator.
+ * Single source of truth for portfolio unit balances and cash flow calculations.
+ */
+export function getTransactionDirection(type: TransactionRecord['type'] | string): {
+  isPurchase: boolean;
+  isRedemption: boolean;
+  isDividendPayout: boolean;
+  isDividendReinvest: boolean;
+  isChargeOrReversal: boolean;
+  affectsHoldingUnits: boolean;
+  cashflowMultiplier: number;
+  cashflowSign: number;
+  unitDelta: number;
+} {
+  const t = (type || '').toUpperCase().trim();
+
+  if (
+    t === 'REDEMPTION' || 
+    t === 'SWITCH_OUT' || 
+    t === 'SWP' || 
+    t.includes('REDEEM') || 
+    t.includes('SELL') ||
+    t.includes('WITHDRAWAL')
+  ) {
+    return {
+      isPurchase: false,
+      isRedemption: true,
+      isDividendPayout: false,
+      isDividendReinvest: false,
+      isChargeOrReversal: false,
+      affectsHoldingUnits: true,
+      cashflowMultiplier: 1, // Cash inflow to investor
+      cashflowSign: 1,
+      unitDelta: -1
+    };
+  }
+
+  if (
+    t === 'DIVIDEND_PAYOUT' ||
+    t === 'IDCW_PAYOUT' ||
+    t.includes('DIVIDEND PAY') ||
+    t.includes('IDCW PAY') ||
+    t.includes('DIVIDEND PAID')
+  ) {
+    return {
+      isPurchase: false,
+      isRedemption: false,
+      isDividendPayout: true,
+      isDividendReinvest: false,
+      isChargeOrReversal: false,
+      affectsHoldingUnits: false, // Dividend payout does NOT change unit balance!
+      cashflowMultiplier: 1, // Cash received by investor (positive cashflow in XIRR)
+      cashflowSign: 1,
+      unitDelta: 0
+    };
+  }
+
+  if (
+    t === 'DIVIDEND_REINVEST' ||
+    t.includes('DIVIDEND REINVEST') ||
+    t.includes('REINVESTMENT') ||
+    t.includes('DIV REINV')
+  ) {
+    return {
+      isPurchase: true,
+      isRedemption: false,
+      isDividendPayout: false,
+      isDividendReinvest: true,
+      isChargeOrReversal: false,
+      affectsHoldingUnits: true, // Increases units in fund
+      cashflowMultiplier: 0, // Net zero external cashflow
+      cashflowSign: 0,
+      unitDelta: 1
+    };
+  }
+
+  if (
+    t === 'REVERSAL' ||
+    t === 'CHARGE' ||
+    t === 'STAMP_DUTY' ||
+    t.includes('REVERSAL') ||
+    t.includes('REJECT') ||
+    t.includes('STAMP') ||
+    t.includes('CHARGE') ||
+    t.includes('DISHONOUR')
+  ) {
+    return {
+      isPurchase: false,
+      isRedemption: false,
+      isDividendPayout: false,
+      isDividendReinvest: false,
+      isChargeOrReversal: true,
+      affectsHoldingUnits: false,
+      cashflowMultiplier: -1,
+      cashflowSign: -1,
+      unitDelta: 0
+    };
+  }
+
+  if (
+    t === 'SIP' ||
+    t === 'LUMPSUM' ||
+    t === 'SWITCH_IN' ||
+    t.includes('BUY') ||
+    t.includes('PURCHASE') ||
+    t.includes('SIP') ||
+    t.includes('NFO')
+  ) {
+    return {
+      isPurchase: true,
+      isRedemption: false,
+      isDividendPayout: false,
+      isDividendReinvest: false,
+      isChargeOrReversal: false,
+      affectsHoldingUnits: true,
+      cashflowMultiplier: -1, // Cash outflow from investor
+      cashflowSign: -1,
+      unitDelta: 1
+    };
+  }
+
+  // Unknown transaction type: do NOT default to purchase!
+  return {
+    isPurchase: false,
+    isRedemption: false,
+    isDividendPayout: false,
+    isDividendReinvest: false,
+    isChargeOrReversal: true,
+    affectsHoldingUnits: false,
+    cashflowMultiplier: 0,
+    cashflowSign: 0,
+    unitDelta: 0
+  };
+}
+
+/**
  * Roll up raw transaction records into portfolio holdings and calculate metrics.
  * Correctly accounts for redemptions and switch-outs by deducting units and proportional cost basis chronologically.
  */
@@ -596,33 +754,16 @@ export function computePortfolioHoldings(
     const item = schemeMap.get(key)!;
     item.transactions.push(tx);
 
-    const txTypeUpper = (tx.type || '').toUpperCase();
     const txUnits = Math.abs(tx.units || 0);
     const txAmount = Math.abs(tx.amount || 0);
+    const direction = getTransactionDirection(tx.type);
 
-    const isRedemption = 
-      txTypeUpper === 'REDEMPTION' || 
-      txTypeUpper === 'SWITCH_OUT' || 
-      txTypeUpper === 'SWP' || 
-      txTypeUpper.includes('REDEEM') || 
-      txTypeUpper.includes('SELL') || 
-      txTypeUpper.includes('SWITCH_OUT');
-
-    const isPurchase = 
-      txTypeUpper === 'SIP' || 
-      txTypeUpper === 'LUMPSUM' || 
-      txTypeUpper === 'SWITCH_IN' || 
-      txTypeUpper === 'DIVIDEND_REINVEST' || 
-      txTypeUpper.includes('BUY') || 
-      txTypeUpper.includes('PURCHASE') ||
-      !isRedemption;
-
-    if (isPurchase && !isRedemption) {
+    if (direction.affectsHoldingUnits && direction.isPurchase) {
       item.units += txUnits;
       item.investedAmount += txAmount;
       item.totalPurchasedUnits += txUnits;
       item.totalPurchasedAmount += txAmount;
-    } else if (isRedemption) {
+    } else if (direction.affectsHoldingUnits && direction.isRedemption) {
       item.totalRedeemedUnits += txUnits;
       item.totalRedeemedAmount += txAmount;
 
@@ -636,6 +777,7 @@ export function computePortfolioHoldings(
         item.units = Math.max(0, item.units - txUnits);
       }
     }
+    // Note: DIVIDEND_PAYOUT, CHARGE, REVERSAL do not affect units or increase purchase cost basis!
   }
 
   let totalCurrentValue = 0;
@@ -659,21 +801,17 @@ export function computePortfolioHoldings(
       }
     }
 
-    // Accumulate cashflows for portfolio level XIRR (even if fully redeemed)
+    // Accumulate cashflows for portfolio level XIRR (using shared getTransactionDirection)
     val.transactions.forEach(tx => {
-      const txDate = new Date(tx.date);
-      const txTypeUpper = (tx.type || '').toUpperCase();
-      const isRedemption = 
-        txTypeUpper === 'REDEMPTION' || 
-        txTypeUpper === 'SWITCH_OUT' || 
-        txTypeUpper === 'SWP' || 
-        txTypeUpper.includes('REDEEM') || 
-        txTypeUpper.includes('SELL');
+      const txDate = parseDateSafe(tx.date);
+      const dir = getTransactionDirection(tx.type);
+      const txAmount = Math.abs(tx.amount || 0);
 
-      if (isRedemption) {
-        allCashflowsForPortfolio.push({ date: txDate, amount: Math.abs(tx.amount) });
-      } else {
-        allCashflowsForPortfolio.push({ date: txDate, amount: -Math.abs(tx.amount) });
+      if (dir.cashflowMultiplier !== 0 && txAmount > 0) {
+        allCashflowsForPortfolio.push({
+          date: txDate,
+          amount: dir.cashflowMultiplier * txAmount
+        });
       }
     });
 
@@ -682,8 +820,8 @@ export function computePortfolioHoldings(
       return;
     }
 
-    const sortedTxsDesc = [...val.transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    const latestTxNav = sortedTxsDesc[0]?.nav || 85.0;
+    const sortedTxsDesc = [...val.transactions].sort((a, b) => parseDateSafe(b.date).getTime() - parseDateSafe(a.date).getTime());
+    const latestTxNav = sortedTxsDesc[0]?.nav || 0;
 
     // 1. Look up directly by schemeCode in catalog
     let schemeMeta: MutualFundScheme | undefined = schemeCatalog[val.schemeCode];
@@ -699,36 +837,21 @@ export function computePortfolioHoldings(
       }
     }
 
-    // 3. Fallback defaults
+    // 3. Authentic metadata (No invented CAGR, AUM, or fake NAV fallbacks)
     if (!schemeMeta) {
       const cleanName = cleanFundDisplayName(val.schemeName);
-      const lower = cleanName.toLowerCase();
-      let defaultCurrentNav = latestTxNav;
-      let defaultNavDate = sortedTxsDesc[0]?.date || '2026-08-28';
-      let default1D = 0.5;
-
-      if (lower.includes('parag parikh') && lower.includes('flexi cap')) {
-        defaultCurrentNav = 91.1767;
-        defaultNavDate = '2026-08-28';
-        default1D = 0.54;
-      } else if (lower.includes('axis') && (lower.includes('elss') || lower.includes('tax saver') || lower.includes('long term'))) {
-        defaultCurrentNav = 112.9;
-        defaultNavDate = '2026-08-28';
-        default1D = 0.42;
-      }
-
       schemeMeta = {
         schemeCode: val.schemeCode,
         schemeName: cleanName,
-        fundHouse: lower.includes('parag parikh') ? 'PPFAS Mutual Fund' : lower.includes('axis') ? 'Axis Mutual Fund' : 'Direct Mutual Fund',
-        category: lower.includes('elss') || lower.includes('tax') ? 'Equity - ELSS' : lower.includes('small') ? 'Equity - Small Cap' : lower.includes('mid') ? 'Equity - Mid Cap' : 'Equity - Flexi Cap',
-        currentNav: defaultCurrentNav,
-        navDate: defaultNavDate,
-        navChange1D: default1D,
-        cagr3Y: 18.5,
-        cagr5Y: 20.2,
-        aumCr: 15000,
-        expenseRatio: 0.65,
+        fundHouse: extractAmcName(cleanName),
+        category: detectFundCategory(cleanName),
+        currentNav: latestTxNav,
+        navDate: sortedTxsDesc[0]?.date || '',
+        navChange1D: 0,
+        cagr3Y: 0,
+        cagr5Y: 0,
+        aumCr: 0,
+        expenseRatio: 0,
         isin: ''
       };
     }
@@ -740,36 +863,35 @@ export function computePortfolioHoldings(
     const totalGainPercentage = val.investedAmount > 0 ? (totalGain / val.investedAmount) * 100 : 0;
 
     const nav1DPercent = schemeMeta.navChange1D || 0;
-    const dayGain = currentValue * (nav1DPercent / 100);
+    // Issue 9: Accurate day gain formula: currentValue * p / (1 + p) where p = nav1DPercent / 100
+    const p = nav1DPercent / 100;
+    const dayGain = (p !== 0 && currentValue > 0) ? (currentValue * p) / (1 + p) : 0;
     const dayGainPercentage = nav1DPercent;
 
     // Calculate Scheme-level XIRR
     const schemeCashflows: { date: Date; amount: number }[] = [];
     val.transactions.forEach(tx => {
-      const txDate = new Date(tx.date);
-      const txTypeUpper = (tx.type || '').toUpperCase();
-      const isRedemption = 
-        txTypeUpper === 'REDEMPTION' || 
-        txTypeUpper === 'SWITCH_OUT' || 
-        txTypeUpper === 'SWP' || 
-        txTypeUpper.includes('REDEEM') || 
-        txTypeUpper.includes('SELL');
+      const txDate = parseDateSafe(tx.date);
+      const dir = getTransactionDirection(tx.type);
+      const txAmount = Math.abs(tx.amount || 0);
 
-      if (isRedemption) {
-        schemeCashflows.push({ date: txDate, amount: Math.abs(tx.amount) });
-      } else {
-        schemeCashflows.push({ date: txDate, amount: -Math.abs(tx.amount) });
+      if (dir.cashflowMultiplier !== 0 && txAmount > 0) {
+        schemeCashflows.push({
+          date: txDate,
+          amount: dir.cashflowMultiplier * txAmount
+        });
       }
     });
 
-    // Add current terminal valuation as positive cashflow
+    // Add current terminal valuation as positive cashflow if holding has value
     const today = new Date();
-    schemeCashflows.push({ date: today, amount: currentValue });
+    if (currentValue > 0) {
+      schemeCashflows.push({ date: today, amount: currentValue });
+    }
 
     const schemeXirr = calculateXirr(schemeCashflows);
 
-    const sortedTxs = [...val.transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    const lastTxDate = sortedTxs[0]?.date || new Date().toISOString().split('T')[0];
+    const lastTxDate = sortedTxsDesc[0]?.date || new Date().toISOString().split('T')[0];
 
     totalCurrentValue += currentValue;
     totalInvestedAmount += val.investedAmount;
@@ -801,7 +923,7 @@ export function computePortfolioHoldings(
       totalGainPercentage: Number.isFinite(totalGainPercentage) ? totalGainPercentage : 0,
       dayGain: Number.isFinite(dayGain) ? dayGain : 0,
       dayGainPercentage: Number.isFinite(dayGainPercentage) ? dayGainPercentage : 0,
-      xirr: Number.isFinite(schemeXirr) ? schemeXirr : 0,
+      xirr: schemeXirr,
       allocationPercentage: 0, // Computed in next step
       transactionsCount: val.transactions.length,
       lastTransactionDate: lastTxDate
@@ -1035,68 +1157,13 @@ export function computePortfolioConcentration(holdings: PortfolioHolding[]): Por
 }
 
 /**
- * Indian Income Tax Capital Gains Estimation (FY 2024-25 / 2025-26 rules)
- * Equity LTCG: > 1 year holding, 12.5% tax with ₹1.25 Lakh exemption
- * Equity STCG: <= 1 year holding, 20% flat tax
- * Debt Mutual Funds (bought after 1 Apr 2023): Taxed at individual slab rate (assumed ~30%)
+ * Indian Income Tax Capital Gains Estimation (FY 2024-25 / FY 2025-26 rules)
+ * Delegates to FIFO lot-matching engine (Section 112A, 111A, 50AA with grandfathering).
  */
 export function computeTaxLiability(transactions: TransactionRecord[], holdings: PortfolioHolding[]): TaxComputation {
-  const oneYearAgo = new Date();
-  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-
-  let ltcgUnrealized = 0;
-  let stcgUnrealized = 0;
-  let debtUnrealized = 0;
-
-  holdings.forEach(h => {
-    const isDebt = h.category.toLowerCase().includes('debt') || h.category.toLowerCase().includes('liquid');
-    const isOldPurchase = new Date(h.lastTransactionDate) <= oneYearAgo;
-
-    if (isDebt) {
-      debtUnrealized += Math.max(0, h.totalGain);
-    } else {
-      if (isOldPurchase) {
-        ltcgUnrealized += Math.max(0, h.totalGain);
-      } else {
-        stcgUnrealized += Math.max(0, h.totalGain);
-      }
-    }
-  });
-
-  const exemptLimit = 125000; // ₹1,25,000 LTCG exemption
-  const taxableLtcg = Math.max(0, ltcgUnrealized - exemptLimit);
-  const taxPayableLtcg = taxableLtcg * 0.125; // 12.5%
-  const taxPayableStcg = stcgUnrealized * 0.20; // 20%
-  const taxPayableDebt = debtUnrealized * 0.30; // ~30% marginal slab rate
-
-  // Tax harvesting opportunity: If LTCG < 1.25L, user can book remaining profit tax-free
-  const taxHarvestingOpportunity = Math.max(0, Math.min(ltcgUnrealized, exemptLimit));
-
-  return {
-    financialYear: 'FY 2024-25 / FY 2025-26',
-    equityLtcg: {
-      grossGain: ltcgUnrealized,
-      exemptLimit,
-      taxableGain: taxableLtcg,
-      taxRate: 12.5,
-      taxPayable: taxPayableLtcg
-    },
-    equityStcg: {
-      grossGain: stcgUnrealized,
-      taxRate: 20.0,
-      taxPayable: taxPayableStcg
-    },
-    debtGains: {
-      grossGain: debtUnrealized,
-      taxRateEstimated: 30.0,
-      taxPayable: taxPayableDebt
-    },
-    totalEstimatedTax: taxPayableLtcg + taxPayableStcg + taxPayableDebt,
-    unrealizedLtcg: ltcgUnrealized,
-    unrealizedStcg: stcgUnrealized,
-    taxHarvestingOpportunity
-  };
+  return runFifoLotEngine(transactions, holdings).taxComputation;
 }
+
 
 /**
  * LTTB Downsampling algorithm for 60fps chart rendering
@@ -1907,19 +1974,9 @@ export interface PreviewMergeAnalysis {
 /**
  * Normalizes transaction type into binary cashflow direction ('INFLOW' | 'OUTFLOW')
  */
-export function getTransactionDirection(type?: string): 'INFLOW' | 'OUTFLOW' {
-  const upper = (type || '').toUpperCase();
-  if (
-    upper === 'REDEMPTION' ||
-    upper === 'SWITCH_OUT' ||
-    upper === 'SWP' ||
-    upper === 'SELL' ||
-    upper.includes('REDEEM') ||
-    upper.includes('OUT')
-  ) {
-    return 'OUTFLOW';
-  }
-  return 'INFLOW';
+export function getBinaryCashflowDirection(type?: string): 'INFLOW' | 'OUTFLOW' {
+  const dir = getTransactionDirection(type);
+  return dir.cashflowSign > 0 ? 'INFLOW' : 'OUTFLOW';
 }
 
 /**
@@ -2453,71 +2510,12 @@ export const DEFAULT_ALLOCATION_STRATEGIES: import('../types').AllocationStrateg
 /**
  * Check if a fund is an Equity-Oriented scheme eligible for Market Cap breakdown.
  * Excludes Debt, Liquid, Cash, Arbitrage, Gold, Silver, and Commodities.
+ * Safe against argument-order transposition (category, schemeName) vs (schemeName, category).
  */
 export function isEquityOrientedScheme(schemeName: string, category: string): boolean {
-  const cat = (category || '').toLowerCase();
-  const name = (schemeName || '').toLowerCase();
-
-  // Explicit Non-Equity exclusions:
-  if (
-    cat.includes('gold') ||
-    cat.includes('silver') ||
-    cat.includes('commodity') ||
-    cat.includes('commodities') ||
-    cat.includes('precious metal') ||
-    name.includes('gold') ||
-    name.includes('silver') ||
-    name.includes('commodity') ||
-    name.includes('commodities')
-  ) {
-    return false;
-  }
-
-  if (
-    cat.includes('liquid') ||
-    cat.includes('overnight') ||
-    cat.includes('money market') ||
-    cat.includes('debt') ||
-    cat.includes('gilt') ||
-    cat.includes('duration') ||
-    cat.includes('bond') ||
-    cat.includes('banking & psu') ||
-    cat.includes('floater') ||
-    cat.includes('credit risk') ||
-    cat.includes('arbitrage') ||
-    name.includes('liquid fund') ||
-    name.includes('overnight fund') ||
-    name.includes('arbitrage') ||
-    name.includes('income plus') ||
-    name.includes('income +')
-  ) {
-    return false;
-  }
-
-  // Equity schemes and Equity-containing Hybrids
-  return (
-    cat.includes('equity') ||
-    cat.includes('index') ||
-    cat.includes('hybrid') ||
-    cat.includes('balanced') ||
-    cat.includes('multi asset') ||
-    cat.includes('flexi') ||
-    cat.includes('cap') ||
-    cat.includes('elss') ||
-    cat.includes('tax saver') ||
-    name.includes('equity') ||
-    name.includes('cap') ||
-    name.includes('elss') ||
-    name.includes('index') ||
-    name.includes('nifty') ||
-    name.includes('sensex') ||
-    name.includes('fund of fund') ||
-    name.includes('fof') ||
-    name.includes('nasdaq') ||
-    name.includes('hybrid') ||
-    name.includes('advantage')
-  );
+  return isEquityOrientedSchemeSafe(schemeName, category);
 }
+
 
 /**
  * Reference Factsheet Market Cap Splits for Popular Indian Mutual Funds (Large, Mid, Small Cap %)

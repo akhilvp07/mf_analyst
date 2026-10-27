@@ -23,37 +23,65 @@ export const DEFAULT_SETTINGS: AppSettings = {
   benchmark: 'NIFTY50'
 };
 
+import { setIndexedDbItem, getIndexedDbItem } from './indexedDbCache';
+
+// In-memory cache to guarantee synchronous fast access
+let inMemoryTransactionsCache: TransactionRecord[] | null = null;
+
 /**
- * Load transactions from local storage (returns empty array if none)
+ * Load transactions with IndexedDB hydration and in-memory cache
  */
 export function loadStoredTransactions(): TransactionRecord[] {
+  if (inMemoryTransactionsCache) {
+    return inMemoryTransactionsCache;
+  }
+
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        return parsed.map(tx => ({
+        inMemoryTransactionsCache = parsed.map(tx => ({
           ...tx,
           schemeName: cleanFundDisplayName(tx.schemeName),
           folioNumber: isValidFolioNumber(tx.folioNumber) ? tx.folioNumber.trim() : (tx.folioNumber || 'FOLIO-1')
         }));
+        return inMemoryTransactionsCache;
       }
     }
   } catch (err) {
     console.error('Failed to load stored transactions:', err);
   }
 
-  return [];
+  // Asynchronously hydrate from IndexedDB if localStorage was empty or cleared
+  getIndexedDbItem<TransactionRecord[]>('portfolio_transactions').then(entry => {
+    if (entry?.data && Array.isArray(entry.data) && (!inMemoryTransactionsCache || inMemoryTransactionsCache.length === 0)) {
+      inMemoryTransactionsCache = entry.data;
+    }
+  }).catch(() => {});
+
+  return inMemoryTransactionsCache || [];
 }
 
 /**
- * Save transactions to local storage
+ * Save transactions directly to IndexedDB (and sync to in-memory / local storage)
  */
 export function saveStoredTransactions(transactions: TransactionRecord[]): void {
+  inMemoryTransactionsCache = transactions;
+  
+  // Persist to IndexedDB (unlimited capacity, asynchronous)
+  setIndexedDbItem('portfolio_transactions', transactions).catch(err => {
+    console.warn('Failed to persist transactions to IndexedDB:', err);
+  });
+
+  // Secondary local storage fallback with quota protection
   try {
-    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(transactions));
+    const serialized = JSON.stringify(transactions);
+    if (serialized.length < 4 * 1024 * 1024) { // Under 4MB limit
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, serialized);
+    }
   } catch (err) {
-    console.error('Failed to save transactions:', err);
+    console.warn('LocalStorage quota exceeded, transactions preserved in IndexedDB:', err);
   }
 }
 

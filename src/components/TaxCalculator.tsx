@@ -3,15 +3,17 @@ import {
   Receipt, 
   Sparkles, 
   Info, 
-  Download, 
   Printer, 
   FileSpreadsheet, 
   Calendar, 
-  CheckCircle2, 
-  Layers
+  Layers,
+  ShieldAlert,
+  ArrowUpRight,
+  Clock
 } from 'lucide-react';
 import { PortfolioHolding, TransactionRecord, CapitalGainsAuditRow } from '../types';
-import { computeTaxLiability, formatINR, isEquityOrientedScheme } from '../utils/financialCalculations';
+import { formatINR } from '../utils/financialCalculations';
+import { runFifoLotEngine } from '../utils/fifoLotEngine';
 import { PrivacyValue } from '../context/PrivacyContext';
 
 interface TaxCalculatorProps {
@@ -22,121 +24,50 @@ interface TaxCalculatorProps {
 export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, holdings }) => {
   const [selectedFy, setSelectedFy] = useState<string>('FY 2024-25');
   const [activeView, setActiveView] = useState<'summary' | 'audit_schedule'>('summary');
-  const [filterType, setFilterType] = useState<'ALL' | 'LTCG' | 'STCG' | 'DEBT'>('ALL');
+  const [filterType, setFilterType] = useState<'ALL' | 'REALIZED' | 'UNREALIZED' | 'LTCG' | 'STCG' | 'DEBT'>('ALL');
 
-  const tax = useMemo(() => computeTaxLiability(transactions, holdings), [transactions, holdings]);
+  // Compute FIFO lot-matched capital gains (both realized and unrealized)
+  const engineResult = useMemo(() => {
+    return runFifoLotEngine(transactions, holdings);
+  }, [transactions, holdings]);
 
-  // Generate granular Capital Gains Audit Schedule Rows for ITR Filing
-  const auditScheduleRows = useMemo((): CapitalGainsAuditRow[] => {
-    const rows: CapitalGainsAuditRow[] = [];
-    const today = new Date();
-
-    // 1. Process Unrealized Holdings
-    holdings.forEach((h, hIdx) => {
-      const isEquity = isEquityOrientedScheme(h.category, h.schemeName);
-      
-      // Look at transactions for this scheme to determine acquisition dates
-      const schemeTxs = transactions
-        .filter(t => t.schemeCode === h.schemeCode && (t.type === 'SIP' || t.type === 'LUMPSUM' || t.type === 'SWITCH_IN' || t.type === 'DIVIDEND_REINVEST'))
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-      if (schemeTxs.length === 0) {
-        // Fallback to holding aggregate
-        const holdingPeriodDays = Math.max(1, Math.round((today.getTime() - new Date(h.lastTransactionDate || '2023-01-01').getTime()) / (1000 * 60 * 60 * 24)));
-        const isLtcg = isEquity && holdingPeriodDays > 365;
-        const gainType = !isEquity ? 'DEBT_SLAB' : isLtcg ? 'LTCG' : 'STCG';
-        const gain = h.currentValue - h.investedAmount;
-        const taxRate = !isEquity ? 30 : isLtcg ? 12.5 : 20;
-
-        rows.push({
-          id: `unrealized_${h.schemeCode}_${hIdx}`,
-          isin: h.isin || 'N/A',
-          schemeCode: h.schemeCode,
-          schemeName: h.schemeName,
-          folioNumber: h.folioNumber || 'N/A',
-          assetClass: isEquity ? 'EQUITY' : 'DEBT',
-          holdingPeriodDays,
-          gainType,
-          purchaseDate: h.lastTransactionDate || 'N/A',
-          sellDate: 'Unrealized (Valuation)',
-          isRealized: false,
-          units: h.units,
-          buyNav: h.avgBuyNav,
-          sellNav: h.currentNav,
-          purchaseCost: h.investedAmount,
-          saleValue: h.currentValue,
-          grossGain: gain,
-          taxableGain: isLtcg ? Math.max(0, gain) : gain,
-          applicableTaxRatePct: taxRate,
-          estimatedTax: Math.max(0, gain) * (taxRate / 100)
-        });
-      } else {
-        // Detailed FIFO / Lot level breakdown
-        schemeTxs.forEach((tx, txIdx) => {
-          const buyDate = new Date(tx.date);
-          const days = Math.max(1, Math.round((today.getTime() - buyDate.getTime()) / (1000 * 60 * 60 * 24)));
-          const isLtcg = isEquity && days > 365;
-          const gainType = !isEquity ? 'DEBT_SLAB' : isLtcg ? 'LTCG' : 'STCG';
-          
-          const lotCost = tx.amount;
-          const lotValue = tx.units * h.currentNav;
-          const lotGain = lotValue - lotCost;
-          const taxRate = !isEquity ? 30 : isLtcg ? 12.5 : 20;
-
-          rows.push({
-            id: `lot_${h.schemeCode}_${tx.id || txIdx}`,
-            isin: h.isin || 'N/A',
-            schemeCode: h.schemeCode,
-            schemeName: h.schemeName,
-            folioNumber: tx.folioNumber || h.folioNumber || 'N/A',
-            assetClass: isEquity ? 'EQUITY' : 'DEBT',
-            holdingPeriodDays: days,
-            gainType,
-            purchaseDate: tx.date,
-            sellDate: 'Unrealized (Valuation)',
-            isRealized: false,
-            units: tx.units,
-            buyNav: tx.nav,
-            sellNav: h.currentNav,
-            purchaseCost: lotCost,
-            saleValue: lotValue,
-            grossGain: lotGain,
-            taxableGain: lotGain,
-            applicableTaxRatePct: taxRate,
-            estimatedTax: Math.max(0, lotGain) * (taxRate / 100)
-          });
-        });
-      }
-    });
-
-    return rows;
-  }, [holdings, transactions]);
+  const tax = engineResult.taxComputation;
+  const auditScheduleRows = engineResult.allRows;
 
   // Filtered rows for audit schedule table
   const filteredAuditRows = useMemo(() => {
     if (filterType === 'ALL') return auditScheduleRows;
-    return auditScheduleRows.filter(r => r.gainType === filterType || (filterType === 'DEBT' && r.gainType === 'DEBT_SLAB'));
+    if (filterType === 'REALIZED') return auditScheduleRows.filter(r => r.isRealized);
+    if (filterType === 'UNREALIZED') return auditScheduleRows.filter(r => !r.isRealized);
+    if (filterType === 'LTCG') return auditScheduleRows.filter(r => r.gainType === 'LTCG');
+    if (filterType === 'STCG') return auditScheduleRows.filter(r => r.gainType === 'STCG');
+    if (filterType === 'DEBT') return auditScheduleRows.filter(r => r.gainType === 'DEBT_SLAB');
+    return auditScheduleRows;
   }, [auditScheduleRows, filterType]);
 
-  // Export ITR Schedule 112A / 111A Capital Gains CSV
-  const handleExportItrCsv = () => {
+  // Export Capital Gains Schedule CSV (Labeled: Estimate, not for filing)
+  const handleExportCsv = () => {
     const headers = [
       'ISIN',
       'Scheme Name',
       'Folio Number',
       'Asset Class',
       'Tax Section',
+      'Status',
       'Date of Acquisition',
-      'Date of Valuation/Sale',
+      'Date of Sale / Valuation',
       'Holding Period (Days)',
       'Units',
-      'Buy NAV (Rs)',
-      'Sale/Current NAV (Rs)',
-      'Cost of Acquisition (Rs)',
-      'Full Value of Consideration (Rs)',
-      'Gross Capital Gain/Loss (Rs)',
+      'Buy NAV (INR)',
+      'Sale / Valuation NAV (INR)',
+      'Cost of Acquisition (INR)',
+      '31-Jan-2018 Grandfathered Cost (INR)',
+      'Sale / Consideration Value (INR)',
+      'Gross Capital Gain / Loss (INR)',
+      'Taxable Gain (INR)',
       'Tax Rate (%)',
-      'Estimated Tax Payable (Rs)'
+      'Estimated Tax (INR)',
+      'Note'
     ];
 
     const rows = auditScheduleRows.map(r => [
@@ -144,7 +75,8 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
       `"${r.schemeName.replace(/"/g, '""')}"`,
       `"${r.folioNumber}"`,
       `"${r.assetClass}"`,
-      `"${r.gainType === 'LTCG' ? 'Sec 112A (LTCG)' : r.gainType === 'STCG' ? 'Sec 111A (STCG)' : 'Sec 50AA (Debt)'}"`,
+      `"${r.sectionCode || (r.gainType === 'LTCG' ? 'Sec 112A' : r.gainType === 'STCG' ? 'Sec 111A' : 'Sec 50AA')}"`,
+      `"${r.isRealized ? 'REALIZED' : 'UNREALIZED'}"`,
       `"${r.purchaseDate}"`,
       `"${r.sellDate}"`,
       r.holdingPeriodDays,
@@ -152,10 +84,13 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
       r.buyNav.toFixed(4),
       r.sellNav.toFixed(4),
       r.purchaseCost.toFixed(2),
+      (r.grandfatheredCost ? r.grandfatheredCost.toFixed(2) : 'N/A'),
       r.saleValue.toFixed(2),
       r.grossGain.toFixed(2),
+      r.taxableGain.toFixed(2),
       r.applicableTaxRatePct,
-      r.estimatedTax.toFixed(2)
+      r.estimatedTax.toFixed(2),
+      `"Estimate, not for filing"`
     ]);
 
     const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
@@ -163,7 +98,7 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `MFTracker_ITR_Schedule_112A_${selectedFy.replace(/\s+/g, '_')}.csv`);
+    link.setAttribute('download', `MFTracker_Capital_Gains_Estimate_${selectedFy.replace(/\s+/g, '_')}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -179,7 +114,7 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
       <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Receipt className="w-5 h-5 text-emerald-400" />
               <h2 className="text-lg font-bold text-white">
                 Capital Gains & Indian Tax Estimator
@@ -187,9 +122,13 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
               <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                 Budget 2024 (12.5% LTCG / 20% STCG)
               </span>
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                FIFO Lot Engine
+              </span>
             </div>
             <p className="text-xs text-neutral-400 mt-1">
-              Automated Schedule 112A (Equity LTCG), Section 111A (STCG), and Section 50AA (Debt) computation with grandfathering support.
+              FIFO lot-matched Schedule 112A (Equity LTCG), Section 111A (STCG), and Section 50AA (Debt) with 31-Jan-2018 grandfathering support.
             </p>
           </div>
 
@@ -208,14 +147,14 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
               </select>
             </div>
 
-            {/* 1-Click Export CSV */}
+            {/* 1-Click Export CSV (Notice: Estimate, not for filing) */}
             <button
-              onClick={handleExportItrCsv}
+              onClick={handleExportCsv}
               className="px-3.5 py-2 text-xs font-semibold text-white bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-              title="Download Schedule 112A Tax Excel/CSV workbook"
+              title="Download FIFO Capital Gains calculation (Estimate, not for filing)"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-              <span>Export ITR Schedule</span>
+              <span>Export Schedule (Estimate)</span>
             </button>
 
             {/* Print Schedule */}
@@ -230,7 +169,7 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
         </div>
 
         {/* View Switcher Tabs */}
-        <div className="flex items-center gap-2 mt-5 pt-4 border-t border-neutral-800">
+        <div className="flex items-center gap-2 mt-5 pt-4 border-t border-neutral-800 flex-wrap">
           <button
             onClick={() => setActiveView('summary')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
@@ -250,13 +189,73 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
-            <span>Detailed ITR Audit Schedule ({auditScheduleRows.length} Lots)</span>
+            <span>FIFO Audit Schedule ({auditScheduleRows.length} Lots: {engineResult.realizedRows.length} Realized, {engineResult.unrealizedRows.length} Unrealized)</span>
           </button>
         </div>
       </div>
 
       {activeView === 'summary' ? (
         <>
+          {/* Realized Gains Summary Callout (if any redemptions exist) */}
+          {tax.realizedSummary && tax.realizedSummary.totalRealizedGain !== 0 && (
+            <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <ArrowUpRight className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-sm font-bold text-white">
+                    Realised Capital Gains from Redemptions ({engineResult.realizedRows.length} Matched Lots)
+                  </h3>
+                </div>
+                <span className="text-xs px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 font-mono">
+                  FIFO Consumed
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                <div className="bg-neutral-950/50 p-3 rounded-xl border border-neutral-800/80">
+                  <span className="text-neutral-400 block text-[11px]">Realised LTCG:</span>
+                  <strong className="text-emerald-400 font-mono text-sm block mt-0.5">
+                    <PrivacyValue value={formatINR(tax.realizedSummary.realizedLtcg)} />
+                  </strong>
+                </div>
+                <div className="bg-neutral-950/50 p-3 rounded-xl border border-neutral-800/80">
+                  <span className="text-neutral-400 block text-[11px]">Realised STCG:</span>
+                  <strong className="text-blue-400 font-mono text-sm block mt-0.5">
+                    <PrivacyValue value={formatINR(tax.realizedSummary.realizedStcg)} />
+                  </strong>
+                </div>
+                <div className="bg-neutral-950/50 p-3 rounded-xl border border-neutral-800/80">
+                  <span className="text-neutral-400 block text-[11px]">Realised Debt:</span>
+                  <strong className="text-purple-400 font-mono text-sm block mt-0.5">
+                    <PrivacyValue value={formatINR(tax.realizedSummary.realizedDebt)} />
+                  </strong>
+                </div>
+                <div className="bg-neutral-950/50 p-3 rounded-xl border border-neutral-800/80">
+                  <span className="text-neutral-400 block text-[11px]">Est. Realised Tax:</span>
+                  <strong className="text-rose-400 font-mono text-sm block mt-0.5">
+                    <PrivacyValue value={formatINR(tax.realizedSummary.realizedTaxPayable)} />
+                  </strong>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Grandfathering Benefit Callout (if pre-2018 equity lots benefited) */}
+          {(tax.grandfatheringSavingsTotal || 0) > 0 && (
+            <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-2xl p-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-emerald-300">Section 112A Grandfathering Applied (31 Jan 2018 FMV)</h4>
+                  <p className="text-[11px] text-neutral-400">
+                    Grandfathering protected <strong className="text-white"><PrivacyValue value={formatINR(tax.grandfatheringSavingsTotal || 0)} /></strong> of pre-2018 equity gains from LTCG taxation.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Tax Harvesting Opportunity Callout */}
           {tax.taxHarvestingOpportunity > 0 && (
             <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -269,7 +268,7 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
                     Section 112A Tax-Gain Harvesting Opportunity
                   </h3>
                   <p className="text-xs text-neutral-300 mt-0.5">
-                    You have <strong className="text-white"><PrivacyValue value={formatINR(tax.taxHarvestingOpportunity)} /></strong> in eligible Long Term Capital Gains (LTCG) that can be redeemed and reinvested <span className="text-emerald-400 font-semibold">100% tax-free</span> under the ₹1.25 Lakh annual exemption before March 31.
+                    You have <strong className="text-white"><PrivacyValue value={formatINR(tax.taxHarvestingOpportunity)} /></strong> in eligible Long Term Capital Gains (LTCG) that can be booked <span className="text-emerald-400 font-semibold">100% tax-free</span> under the ₹1.25 Lakh annual exemption before March 31.
                   </p>
                 </div>
               </div>
@@ -283,7 +282,7 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                    Equity LTCG (Holding &gt; 12m)
+                    Equity LTCG (Holding &gt; 365 Days)
                   </span>
                   <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 font-mono font-bold">
                     12.5% Tax
@@ -321,7 +320,7 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-bold text-blue-400 uppercase tracking-wider">
-                    Equity STCG (Holding &le; 12m)
+                    Equity STCG (Holding &le; 365 Days)
                   </span>
                   <span className="text-xs px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 font-mono font-bold">
                     20.0% Tax
@@ -359,7 +358,7 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-bold text-purple-400 uppercase tracking-wider">
-                    Debt Funds (Sec 50AA)
+                    Debt & Specified Funds (Sec 50AA)
                   </span>
                   <span className="text-xs px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 font-mono font-bold">
                     Slab Rate (~30%)
@@ -393,41 +392,39 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
             </div>
           </div>
 
-          {/* Rules Information Box */}
+          {/* Legal Disclaimer Box */}
           <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 text-xs text-neutral-400 space-y-2">
             <div className="flex items-center gap-2 text-neutral-200 font-bold">
-              <Info className="w-4 h-4 text-teal-400" />
-              <span>Indian Mutual Fund Tax Rules Reference (Finance Act 2024)</span>
+              <ShieldAlert className="w-4 h-4 text-amber-400" />
+              <span>Tax Disclaimer: Estimate, not for filing</span>
             </div>
-            <ul className="list-disc list-inside space-y-1 text-neutral-400 pl-2">
-              <li><strong>Equity Mutual Funds:</strong> Funds with &gt;= 65% domestic equity exposure. LTCG applies after 12 months at 12.5% with ₹1.25 Lakh exemption. STCG applies within 12 months at 20%.</li>
-              <li><strong>Tax Harvesting:</strong> Redeeming and immediately reinvesting up to ₹1.25 Lakh of long-term gains every financial year resets your purchase NAV higher, legally saving taxes in future years.</li>
-              <li><strong>Grandfathering:</strong> Gains made on equity funds up to January 31, 2018 remain grandfathered and fully exempt from LTCG.</li>
-            </ul>
+            <p className="text-neutral-400">
+              Tax liabilities are estimated based on Indian Finance Act 2024 rules (12.5% LTCG with ₹1.25 Lakh exemption, 20% STCG, Section 50AA slab rates). This output is an analytical estimate for portfolio planning and does not constitute formal tax advice or an official ITR schedule. Consult a Chartered Accountant for filing.
+            </p>
           </div>
         </>
       ) : (
-        /* Detailed ITR Audit Schedule View */
+        /* Detailed FIFO Lots Audit Schedule View */
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-neutral-900 p-4 rounded-xl border border-neutral-800 text-xs">
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-              {(['ALL', 'LTCG', 'STCG', 'DEBT'] as const).map((t) => (
+              {(['ALL', 'REALIZED', 'UNREALIZED', 'LTCG', 'STCG', 'DEBT'] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setFilterType(t)}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-lg font-medium transition cursor-pointer whitespace-nowrap ${
                     filterType === t
                       ? 'bg-emerald-500 text-neutral-950 font-bold'
                       : 'bg-neutral-800 text-neutral-400 hover:text-white'
                   }`}
                 >
-                  {t === 'ALL' ? 'All Tax Lots' : t === 'LTCG' ? 'Sec 112A (LTCG)' : t === 'STCG' ? 'Sec 111A (STCG)' : 'Debt (Sec 50AA)'}
+                  {t === 'ALL' ? 'All Lots' : t === 'REALIZED' ? 'Realised Lots' : t === 'UNREALIZED' ? 'Unrealised Lots' : t === 'LTCG' ? 'Sec 112A (LTCG)' : t === 'STCG' ? 'Sec 111A (STCG)' : 'Debt (Sec 50AA)'}
                 </button>
               ))}
             </div>
 
-            <span className="text-neutral-400">
-              Showing <strong className="text-white">{filteredAuditRows.length}</strong> tax lots
+            <span className="text-neutral-400 whitespace-nowrap">
+              Showing <strong className="text-white">{filteredAuditRows.length}</strong> FIFO tax lots
             </span>
           </div>
 
@@ -436,11 +433,12 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
               <thead className="bg-neutral-800/40 text-neutral-400 border-b border-neutral-800 text-[11px]">
                 <tr>
                   <th className="py-3 px-4">Scheme & Folio</th>
+                  <th className="py-3 px-3">Status</th>
                   <th className="py-3 px-3">Tax Section</th>
                   <th className="py-3 px-3 text-right">Holding Days</th>
                   <th className="py-3 px-3 text-right">Units</th>
                   <th className="py-3 px-3 text-right">Cost (₹)</th>
-                  <th className="py-3 px-3 text-right">Valuation (₹)</th>
+                  <th className="py-3 px-3 text-right">Valuation / Sale (₹)</th>
                   <th className="py-3 px-3 text-right">Gain/Loss (₹)</th>
                   <th className="py-3 px-4 text-right">Est. Tax (₹)</th>
                 </tr>
@@ -448,7 +446,7 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
               <tbody className="divide-y divide-neutral-800/60 font-mono">
                 {filteredAuditRows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-neutral-500">
+                    <td colSpan={9} className="py-8 text-center text-neutral-500 font-sans">
                       No tax lots match the selected filter.
                     </td>
                   </tr>
@@ -459,7 +457,18 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
                       <tr key={r.id} className="hover:bg-neutral-800/30 transition">
                         <td className="py-3 px-4 font-sans">
                           <span className="font-semibold text-white block text-xs truncate max-w-xs">{r.schemeName}</span>
-                          <span className="text-[10px] text-neutral-500 font-mono">Folio: {r.folioNumber} • Buy: {r.purchaseDate}</span>
+                          <span className="text-[10px] text-neutral-500 font-mono">
+                            Folio: {r.folioNumber} • Buy: {r.purchaseDate} {r.isRealized ? `• Sold: ${r.sellDate}` : ''}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 font-sans">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            r.isRealized
+                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                              : 'bg-neutral-800 text-neutral-300'
+                          }`}>
+                            {r.isRealized ? 'Realised' : 'Unrealised'}
+                          </span>
                         </td>
                         <td className="py-3 px-3 font-sans">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -469,7 +478,7 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
                               ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
                               : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
                           }`}>
-                            {r.gainType === 'LTCG' ? '112A (12.5%)' : r.gainType === 'STCG' ? '111A (20%)' : '50AA (Slab)'}
+                            {r.sectionCode || (r.gainType === 'LTCG' ? '112A (12.5%)' : r.gainType === 'STCG' ? '111A (20%)' : '50AA (Slab)')}
                           </span>
                         </td>
                         <td className="py-3 px-3 text-right text-neutral-300">{r.holdingPeriodDays}d</td>

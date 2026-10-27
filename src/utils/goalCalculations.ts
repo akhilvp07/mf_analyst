@@ -194,7 +194,7 @@ export function analyzeGoal(goal: PortfolioGoal, holdings: PortfolioHolding[]): 
       goalInvestedAmount += invVal;
 
       const catLower = (h.category || '').toLowerCase();
-      if (isEquityOrientedScheme(h.category, h.schemeName)) {
+      if (isEquityOrientedScheme(h.schemeName, h.category)) {
         if (catLower.includes('hybrid') || catLower.includes('balanced')) {
           totalHybridVal += currVal;
           totalEquityVal += currVal * 0.65;

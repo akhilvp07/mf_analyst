@@ -98,7 +98,7 @@ export const HoldingDetailView: React.FC<HoldingDetailViewProps> = ({
   const avgBuyNavVal = Number.isFinite(holding.avgBuyNav) ? holding.avgBuyNav : 0;
   const currentNavVal = Number.isFinite(holding.currentNav) ? holding.currentNav : 0;
   const totalGainPctVal = Number.isFinite(holding.totalGainPercentage) ? holding.totalGainPercentage : 0;
-  const xirrVal = Number.isFinite(holding.xirr) ? holding.xirr : 0;
+  const xirrVal = holding.xirr !== null && Number.isFinite(holding.xirr) ? holding.xirr : null;
   const allocPctVal = Number.isFinite(holding.allocationPercentage) ? holding.allocationPercentage : 0;
 
   // Gain multiple e.g. 1.25x
@@ -303,7 +303,7 @@ export const HoldingDetailView: React.FC<HoldingDetailViewProps> = ({
             <div className="text-xs text-neutral-400 mt-1.5 flex items-center gap-1.5">
               <span>Annualized XIRR:</span>
               <span className="px-1.5 py-0.5 rounded text-xs font-bold font-mono bg-teal-500/10 text-teal-300 border border-teal-500/20">
-                {xirrVal > 0 ? `+${xirrVal.toFixed(2)}%` : `${xirrVal.toFixed(2)}%`} p.a.
+                {xirrVal !== null ? `${xirrVal > 0 ? '+' : ''}${xirrVal.toFixed(2)}% p.a.` : 'N/A'}
               </span>
             </div>
           </div>
@@ -405,7 +405,7 @@ export const HoldingDetailView: React.FC<HoldingDetailViewProps> = ({
               Annualized Return (XIRR)
             </span>
             <div className="text-lg font-bold font-mono text-teal-300">
-              {xirrVal > 0 ? `+${xirrVal.toFixed(2)}%` : `${xirrVal.toFixed(2)}%`}
+              {xirrVal !== null ? `${xirrVal > 0 ? '+' : ''}${xirrVal.toFixed(2)}%` : 'N/A'}
             </div>
             <span className="text-[11px] text-neutral-500 block mt-0.5">
               Compounded annual return
