@@ -214,12 +214,49 @@ export function calculateGrandfatheredCost(
   return { adjustedCostNav, grandfatheringBenefitPerUnit };
 }
 
+export const BUDGET_2024_EFFECTIVE_DATE = '2024-07-23';
+export const BUDGET_2024_CUTOFF = new Date('2024-07-23T00:00:00Z');
+
+/**
+ * Returns accurate statutory equity tax rates and annual exemption threshold based on actual sale date:
+ * - Sales before 23-Jul-2024: STCG 15%, LTCG 10%, Exemption limit ₹1,00,000 (pre-Budget 2024)
+ * - Sales on or after 23-Jul-2024: STCG 20%, LTCG 12.5%, Exemption limit ₹1,25,000 (Budget 2024)
+ */
+export function getEquityTaxRatesForSaleDate(sellDate: Date = new Date()): {
+  stcgRate: number;
+  ltcgRate: number;
+  exemptionLimit: number;
+  isBudget2024OrLater: boolean;
+  sectionCodeLtcg: string;
+  sectionCodeStcg: string;
+} {
+  const isBudget2024 = sellDate.getTime() >= BUDGET_2024_CUTOFF.getTime();
+  if (isBudget2024) {
+    return {
+      stcgRate: 20.0,
+      ltcgRate: 12.5,
+      exemptionLimit: 125000,
+      isBudget2024OrLater: true,
+      sectionCodeLtcg: 'Sec 112A',
+      sectionCodeStcg: 'Sec 111A'
+    };
+  }
+  return {
+    stcgRate: 15.0,
+    ltcgRate: 10.0,
+    exemptionLimit: 100000,
+    isBudget2024OrLater: false,
+    sectionCodeLtcg: 'Sec 112A',
+    sectionCodeStcg: 'Sec 111A'
+  };
+}
+
 export const EQUITY_LTCG_EXEMPTION_LIMIT = INDIAN_TAX_CONFIG.equityLtcgExemptionLimit;
 export const EQUITY_LTCG_TAX_RATE = INDIAN_TAX_CONFIG.rates.equity.ltcgRate;
 export const EQUITY_STCG_TAX_RATE = INDIAN_TAX_CONFIG.rates.equity.stcgRate;
 
 /**
- * Determine holding tax classification for a specific lot
+ * Determine holding tax classification for a specific lot, strictly sensitive to the actual sale date
  */
 export function determineHoldingTaxClassification(
   arg1: string = '',
@@ -231,17 +268,20 @@ export function determineHoldingTaxClassification(
   isLtcg: boolean;
   rate: number;
   sectionCode: string;
+  exemptionLimit: number;
 } {
   const isEquity = isEquityOrientedSchemeSafe(arg1, arg2);
   const holdingDays = Math.max(0, Math.round((sellDate.getTime() - buyDate.getTime()) / (1000 * 60 * 60 * 24)));
 
   if (isEquity) {
+    const equityRates = getEquityTaxRatesForSaleDate(sellDate);
     const isLtcg = holdingDays > INDIAN_TAX_CONFIG.rates.equity.stcgDays;
     return {
       taxCategory: 'EQUITY',
       isLtcg,
-      rate: isLtcg ? INDIAN_TAX_CONFIG.rates.equity.ltcgRate : INDIAN_TAX_CONFIG.rates.equity.stcgRate,
-      sectionCode: isLtcg ? 'SEC_112A' : 'SEC_111A'
+      rate: isLtcg ? equityRates.ltcgRate : equityRates.stcgRate,
+      sectionCode: isLtcg ? 'SEC_112A' : 'SEC_111A',
+      exemptionLimit: equityRates.exemptionLimit
     };
   }
 
@@ -254,7 +294,8 @@ export function determineHoldingTaxClassification(
       taxCategory: 'DEBT_POST_2023',
       isLtcg: false,
       rate: INDIAN_TAX_CONFIG.marginalSlabRateEstimated,
-      sectionCode: 'SEC_50AA'
+      sectionCode: 'SEC_50AA',
+      exemptionLimit: 0
     };
   }
 
@@ -264,6 +305,8 @@ export function determineHoldingTaxClassification(
     taxCategory: chosenClass,
     isLtcg,
     rate: isLtcg ? INDIAN_TAX_CONFIG.rates.hybridAndOther.ltcgRate : INDIAN_TAX_CONFIG.rates.hybridAndOther.stcgRate,
-    sectionCode: isLtcg ? 'SEC_112' : 'SEC_50AA'
+    sectionCode: isLtcg ? 'SEC_112' : 'SEC_50AA',
+    exemptionLimit: 0
   };
 }
+

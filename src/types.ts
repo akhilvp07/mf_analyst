@@ -8,10 +8,10 @@ export interface MutualFundScheme {
   currentNav: number;
   navDate: string;
   navChange1D: number;
-  cagr3Y: number;
-  cagr5Y: number;
-  aumCr: number;
-  expenseRatio: number;
+  cagr3Y?: number;
+  cagr5Y?: number;
+  aumCr?: number;
+  expenseRatio?: number;
   isin: string;
 }
 
@@ -52,6 +52,8 @@ export interface TransactionRecord {
   amount: number;
   status: 'COMPLETED' | 'PENDING' | 'FAILED';
   notes?: string;
+  updatedAt?: string; // ISO 8601 timestamp for conflict resolution & sync
+  deleted?: boolean;  // Soft delete tombstone
 }
 
 export interface PortfolioHolding {
@@ -389,6 +391,8 @@ export interface CapitalGainsAuditRow {
   gainOrLoss?: number; // alias for grossGain
   fmv2018Nav?: number;
   grandfatheredCost?: number;
+  grandfatheringStatus?: 'APPLIED' | 'NOT_APPLICABLE' | 'FMV_MISSING';
+  grandfatheringWarning?: string;
   taxableGain: number;
   applicableTaxRatePct: number;
   estimatedTax: number;

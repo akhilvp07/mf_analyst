@@ -7,7 +7,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { PortfolioHolding, PortfolioSummary, TransactionRecord } from '../types';
-import { formatINR, formatNavDateDisplay, formatNavDateShort } from '../utils/financialCalculations';
+import { formatINR, formatNavDateDisplay, formatNavDateShort, isNavStale } from '../utils/financialCalculations';
 import { PrivacyValue } from '../context/PrivacyContext';
 import { HoldingDetailView } from './HoldingDetailView';
 import { MarketOpportunityBanner } from './MarketOpportunityBanner';
@@ -134,9 +134,16 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                   <div className="flex flex-col min-w-0 pr-2">
                     <span className="truncate">Folio: <strong className="font-mono text-neutral-300">{holding.folioNumber}</strong></span>
                     {holding.navDate && currentNavVal > 0 && (
-                      <span className="text-[10px] text-neutral-500 font-mono mt-0.5">
-                        NAV as of: <span className="text-neutral-300 font-medium">{formatNavDateShort(holding.navDate)}</span>
-                      </span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] text-neutral-500 font-mono">
+                          NAV as of: <span className="text-neutral-300 font-medium">{formatNavDateShort(holding.navDate)}</span>
+                        </span>
+                        {isNavStale(holding.navDate) && (
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-950/70 text-amber-300 border border-amber-800/80" title="NAV is older than 5 days">
+                            Stale
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -350,8 +357,13 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                             </span>
                           )}
                           {holding.navDate && currentNavVal > 0 && (
-                            <span className="text-neutral-500 text-[10px]" title={`NAV Date: ${formatNavDateDisplay(holding.navDate)}`}>
-                              • {formatNavDateShort(holding.navDate)}
+                            <span className="flex items-center gap-1 text-[10px]" title={`NAV Date: ${formatNavDateDisplay(holding.navDate)}`}>
+                              <span className="text-neutral-500">• {formatNavDateShort(holding.navDate)}</span>
+                              {isNavStale(holding.navDate) && (
+                                <span className="px-1 py-0.2 rounded text-[9px] font-bold bg-amber-950/70 text-amber-300 border border-amber-800/80" title="NAV is older than 5 days">
+                                  Stale
+                                </span>
+                              )}
                             </span>
                           )}
                         </div>

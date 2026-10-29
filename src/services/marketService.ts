@@ -1,10 +1,12 @@
-import { NiftyMarketData } from '../types';
+import { NiftyMarketData, NiftyHistoryPoint } from '../types';
+import { getIndexedDbItem, setIndexedDbItem } from './indexedDbCache';
 
-const MARKET_CACHE_KEY = 'mftracker_nifty_market_data_v2';
+const MARKET_CACHE_KEY = 'mftracker_nifty_market_data_v3';
 const MARKET_SETTINGS_KEY = 'mftracker_market_alert_settings_v1';
+const INDEX_FUND_BENCHMARK_SCHEME = '120716'; // UTI Nifty 50 Index Fund - Direct Plan - Growth
 
 export interface MarketAlertSettings {
-  drawdownThreshold: number; // default 15
+  drawdownThreshold: number; // default 15%
   peThreshold: number; // default 20.0
   browserNotifications: boolean;
   soundAlerts: boolean;
@@ -18,69 +20,193 @@ export const DEFAULT_ALERT_SETTINGS: MarketAlertSettings = {
   soundAlerts: true
 };
 
-export const FALLBACK_MARKET_DATA: NiftyMarketData = {
-  symbol: '^NSEI',
-  name: 'NIFTY 50 Index',
-  currentClose: 23146.15,
-  previousClose: 24072.75,
-  change: -926.6,
-  changePercent: -3.85,
-  lastUpdated: new Date().toISOString(),
-  allTimePeak: 26216.05,
-  allTimePeakDate: '2024-09-27',
-  pointDropFromPeak: 3069.9,
-  percentDropFromPeak: -11.71,
-  drawdownTriggerPercent: 15.0,
-  isDrawdownAlertActive: false,
-  triggerLevel15Percent: 22283.64,
-  pointsTo15PercentTrigger: 862.51,
-  currentPe: 19.77,
-  currentPeTtm: 19.77,
-  peTtm: 19.77,
-  peThreshold: 20.0,
-  isPeAlertActive: true,
-  peZone: 'deep_value',
-  pointsToPe20Threshold: -269.25,
-  conciseSummary: 'Nifty 50 closed at 23,146.15, which is 3,069.90 points (11.71%) below its all-time peak of 26,216.05 (27 Sep 2024). Current Nifty P/E Ratio (TTM) is 19.77 (Sub-20.00 valuation buy trigger ACTIVE).',
-  history: [
-    { date: '2024-09-27', close: 26216.05, peak: 26216.05, drawdownPercent: 0, pe: 22.39, peTtm: 22.39, isDrawdownAlert: false, isPeAlert: false },
-    { date: '2024-10-15', close: 25057.35, peak: 26216.05, drawdownPercent: -4.42, pe: 21.40, peTtm: 21.40, isDrawdownAlert: false, isPeAlert: false },
-    { date: '2024-11-04', close: 23995.35, peak: 26216.05, drawdownPercent: -8.47, pe: 20.49, peTtm: 20.49, isDrawdownAlert: false, isPeAlert: false },
-    { date: '2024-11-20', close: 23518.50, peak: 26216.05, drawdownPercent: -10.29, pe: 20.09, peTtm: 20.09, isDrawdownAlert: false, isPeAlert: false },
-    { date: '2024-12-20', close: 23812.80, peak: 26216.05, drawdownPercent: -9.17, pe: 20.34, peTtm: 20.34, isDrawdownAlert: false, isPeAlert: false },
-    { date: '2025-01-15', close: 23205.10, peak: 26216.05, drawdownPercent: -11.49, pe: 19.82, peTtm: 19.82, isDrawdownAlert: false, isPeAlert: true },
-    { date: '2025-02-05', close: 22850.40, peak: 26216.05, drawdownPercent: -12.84, pe: 19.52, peTtm: 19.52, isDrawdownAlert: false, isPeAlert: true },
-    { date: '2025-02-28', close: 22179.90, peak: 26216.05, drawdownPercent: -15.39, pe: 18.94, peTtm: 18.94, isDrawdownAlert: true, isPeAlert: true },
-    { date: '2025-03-15', close: 22622.70, peak: 26216.05, drawdownPercent: -13.71, pe: 19.32, peTtm: 19.32, isDrawdownAlert: false, isPeAlert: true },
-    { date: '2025-03-25', close: 22997.35, peak: 26216.05, drawdownPercent: -12.28, pe: 19.64, peTtm: 19.64, isDrawdownAlert: false, isPeAlert: true },
-    { date: '2026-10-16', close: 23146.15, peak: 26216.05, drawdownPercent: -11.71, pe: 19.77, peTtm: 19.77, isDrawdownAlert: false, isPeAlert: true }
-  ]
-};
+/**
+ * Checks if market data is missing or older than 5 calendar days
+ */
+export function isMarketDataStale(data: NiftyMarketData | null | undefined): boolean {
+  if (!data || !data.lastUpdated) return true;
+  const updateTime = new Date(data.lastUpdated).getTime();
+  if (isNaN(updateTime)) return true;
+  const fiveDaysMs = 5 * 24 * 60 * 60 * 1000;
+  return Date.now() - updateTime > fiveDaysMs;
+}
 
-export async function fetchNiftyMarketData(): Promise<NiftyMarketData> {
+/**
+ * Browser-side fallback: Fetches real daily Total Return history of a prominent Nifty 50 Direct Index Fund
+ * directly via public CORS-enabled AMFI/mfapi endpoint when the local Node server proxy is unavailable.
+ */
+export async function fetchBrowserNiftyIndexFundFallback(): Promise<NiftyMarketData | null> {
+  try {
+    const res = await fetch(`https://api.mfapi.in/mf/${INDEX_FUND_BENCHMARK_SCHEME}`, {
+      headers: { Accept: 'application/json' }
+    });
+    if (!res.ok) {
+      throw new Error(`mfapi index fund fetch failed: HTTP ${res.status}`);
+    }
+    const json = await res.json();
+    if (!json?.data || !Array.isArray(json.data) || json.data.length === 0) {
+      throw new Error('Invalid index fund NAV series');
+    }
+
+    // Sort ascending by calendar date (DD-MM-YYYY)
+    const parseNavDate = (dStr: string): Date => {
+      const parts = dStr.split('-');
+      if (parts.length === 3) {
+        return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+      }
+      return new Date(dStr);
+    };
+
+    const sortedRows = [...json.data]
+      .filter(r => r.date && r.nav && !isNaN(parseFloat(r.nav)))
+      .map(r => ({
+        date: parseNavDate(r.date),
+        dateStr: r.date,
+        nav: parseFloat(r.nav)
+      }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    if (sortedRows.length === 0) return null;
+
+    // Find all-time peak and current drawdown
+    let runningPeak = 0;
+    let peakDateStr = '';
+    const history: NiftyHistoryPoint[] = [];
+
+    // Subsample last 90 trading sessions for responsive rendering
+    const recentRows = sortedRows.slice(-180);
+
+    for (const r of recentRows) {
+      if (r.nav > runningPeak) {
+        runningPeak = r.nav;
+        peakDateStr = r.dateStr;
+      }
+      const ddPct = runningPeak > 0 ? ((r.nav - runningPeak) / runningPeak) * 100 : 0;
+      history.push({
+        date: r.date.toISOString().split('T')[0],
+        close: r.nav,
+        peak: runningPeak,
+        drawdownPercent: Number(ddPct.toFixed(2)),
+        pe: 0,
+        peTtm: 0,
+        isDrawdownAlert: ddPct <= -15.0,
+        isPeAlert: false
+      });
+    }
+
+    const latest = sortedRows[sortedRows.length - 1];
+    const prev = sortedRows.length >= 2 ? sortedRows[sortedRows.length - 2] : latest;
+    const currentNav = latest.nav;
+    const prevNav = prev.nav;
+    const change = currentNav - prevNav;
+    const changePercent = prevNav > 0 ? (change / prevNav) * 100 : 0;
+    const currentDrawdownPct = runningPeak > 0 ? ((currentNav - runningPeak) / runningPeak) * 100 : 0;
+    const pointDrop = Number((runningPeak - currentNav).toFixed(2));
+    const triggerLevel15 = Number((runningPeak * 0.85).toFixed(2));
+    const isDrawdownAlert = currentDrawdownPct <= -15.0;
+
+    const data: NiftyMarketData = {
+      symbol: 'NIFTY50_TRI',
+      name: `Nifty 50 Total Return (via ${json.meta?.scheme_name || 'UTI Nifty 50 Index Fund'})`,
+      currentClose: currentNav,
+      previousClose: prevNav,
+      change: Number(change.toFixed(2)),
+      changePercent: Number(changePercent.toFixed(2)),
+      lastUpdated: latest.date.toISOString(),
+      allTimePeak: runningPeak,
+      allTimePeakDate: peakDateStr,
+      pointDropFromPeak: pointDrop,
+      percentDropFromPeak: Number(currentDrawdownPct.toFixed(2)),
+      drawdownTriggerPercent: 15.0,
+      isDrawdownAlertActive: isDrawdownAlert,
+      triggerLevel15Percent: triggerLevel15,
+      pointsTo15PercentTrigger: Number((currentNav - triggerLevel15).toFixed(2)),
+      currentPe: 0, // P/E is not fabricated from index fund NAV; must come from live server or user input
+      currentPeTtm: 0,
+      peTtm: 0,
+      peThreshold: 20.0,
+      isPeAlertActive: false, // Suppress false P/E alert
+      peZone: 'fair',
+      pointsToPe20Threshold: 0,
+      conciseSummary: `Nifty 50 TRI benchmark tracked at NAV ₹${currentNav.toFixed(2)} (${Math.abs(currentDrawdownPct).toFixed(2)}% below peak). P/E unavailable offline.`,
+      history
+    };
+
+    return data;
+  } catch (err) {
+    console.warn('Browser index fund fallback failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Primary Market Data Fetcher:
+ * 1. Tries local server proxy (/api/market/nifty)
+ * 2. If unavailable, falls back to direct browser index fund fetch
+ * 3. If both fail, checks cached data (flagging stale if > 5 days)
+ * 4. Returns null if no authentic market data exists (NEVER returns invented figures)
+ */
+export async function fetchNiftyMarketData(): Promise<NiftyMarketData | null> {
+  // 1. Try server proxy
   try {
     const res = await fetch('/api/market/nifty');
-    if (!res.ok) {
-      throw new Error(`Market API returned HTTP ${res.status}`);
-    }
-    const data: NiftyMarketData = await res.json();
-    if (data && typeof data.currentClose === 'number') {
-      try {
-        localStorage.setItem(MARKET_CACHE_KEY, JSON.stringify(data));
-      } catch (e) {}
-      return data;
-    }
-    throw new Error('Invalid market data payload');
-  } catch (err) {
-    console.warn('Failed to fetch live market data from server, using local cache / fallback:', err);
-    try {
-      const cached = localStorage.getItem(MARKET_CACHE_KEY);
-      if (cached) {
-        return JSON.parse(cached);
+    if (res.ok) {
+      const data: NiftyMarketData = await res.json();
+      if (data && typeof data.currentClose === 'number' && data.currentClose > 0) {
+        data.lastUpdated = data.lastUpdated || new Date().toISOString();
+        // Check if data is stale
+        if (isMarketDataStale(data)) {
+          data.isDrawdownAlertActive = false;
+          data.isPeAlertActive = false;
+        }
+        await setIndexedDbItem(MARKET_CACHE_KEY, data);
+        try {
+          localStorage.setItem(MARKET_CACHE_KEY, JSON.stringify(data));
+        } catch {}
+        return data;
       }
-    } catch (e) {}
-    return FALLBACK_MARKET_DATA;
+    }
+  } catch (err) {
+    console.warn('Server market proxy unavailable, trying browser index fund fallback:', err);
   }
+
+  // 2. Try browser-side index fund benchmark fallback
+  const browserFallback = await fetchBrowserNiftyIndexFundFallback();
+  if (browserFallback) {
+    await setIndexedDbItem(MARKET_CACHE_KEY, browserFallback);
+    try {
+      localStorage.setItem(MARKET_CACHE_KEY, JSON.stringify(browserFallback));
+    } catch {}
+    return browserFallback;
+  }
+
+  // 3. Try cached data from IndexedDB or localStorage
+  try {
+    const idbCached = await getIndexedDbItem<NiftyMarketData>(MARKET_CACHE_KEY);
+    if (idbCached?.data && idbCached.data.currentClose > 0) {
+      const cached = idbCached.data;
+      if (isMarketDataStale(cached)) {
+        cached.isDrawdownAlertActive = false;
+        cached.isPeAlertActive = false;
+      }
+      return cached;
+    }
+
+    const lsCached = localStorage.getItem(MARKET_CACHE_KEY);
+    if (lsCached) {
+      const parsed = JSON.parse(lsCached);
+      if (parsed && parsed.currentClose > 0) {
+        if (isMarketDataStale(parsed)) {
+          parsed.isDrawdownAlertActive = false;
+          parsed.isPeAlertActive = false;
+        }
+        return parsed;
+      }
+    }
+  } catch {}
+
+  // 4. No authentic data available -> Return null (Never return fabricated data!)
+  return null;
 }
 
 export function loadAlertSettings(): MarketAlertSettings {

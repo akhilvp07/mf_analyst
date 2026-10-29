@@ -240,6 +240,85 @@ export async function updateDrivePortfolioFile(
  *   merges transaction sets safely (union without duplicates) so no investment entries are lost,
  *   updates Drive with the merged result, and flags conflict = true for user awareness.
  */
+export const CURRENT_FORMAT_VERSION = 3;
+
+/**
+ * Derives an AES-GCM 256-bit key from a user passphrase using PBKDF2
+ */
+async function deriveEncryptionKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(passphrase),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt,
+      iterations: 100000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+/**
+ * Encrypts a SyncedPortfolioPayload using AES-GCM with a user-supplied passphrase
+ */
+export async function encryptPayloadWithPassphrase(
+  payload: SyncedPortfolioPayload,
+  passphrase: string
+): Promise<{ encrypted: true; salt: string; iv: string; ciphertext: string }> {
+  const enc = new TextEncoder();
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveEncryptionKey(passphrase, salt);
+  const encodedData = enc.encode(JSON.stringify(payload));
+
+  const encryptedBuffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    encodedData
+  );
+
+  const uint8ToB64 = (arr: Uint8Array) => btoa(String.fromCharCode(...arr));
+  return {
+    encrypted: true,
+    salt: uint8ToB64(salt),
+    iv: uint8ToB64(iv),
+    ciphertext: uint8ToB64(new Uint8Array(encryptedBuffer))
+  };
+}
+
+/**
+ * Decrypts a passphrase-encrypted payload using AES-GCM
+ */
+export async function decryptPayloadWithPassphrase(
+  encryptedData: { salt: string; iv: string; ciphertext: string },
+  passphrase: string
+): Promise<SyncedPortfolioPayload> {
+  const b64ToUint8 = (b64: string) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const salt = b64ToUint8(encryptedData.salt);
+  const iv = b64ToUint8(encryptedData.iv);
+  const ciphertext = b64ToUint8(encryptedData.ciphertext);
+
+  const key = await deriveEncryptionKey(passphrase, salt);
+  const decryptedBuffer = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    ciphertext
+  );
+
+  const dec = new TextDecoder();
+  return JSON.parse(dec.decode(decryptedBuffer));
+}
+
 export async function syncPortfolioWithDrive(
   accessToken: string,
   localState: {
@@ -264,7 +343,7 @@ export async function syncPortfolioWithDrive(
     // 2. No file exists in Drive yet: create it with local state
     if (!existingFile) {
       const payload: SyncedPortfolioPayload = {
-        formatVersion: 2,
+        formatVersion: CURRENT_FORMAT_VERSION,
         app: 'MFTracker',
         updatedAt: now,
         deviceId,
@@ -292,6 +371,20 @@ export async function syncPortfolioWithDrive(
     const remotePayload = await downloadDrivePortfolio(accessToken, existingFile.id);
     const remoteUpdatedAt = remotePayload.updatedAt || existingFile.modifiedTime || '';
 
+    // Guard: Prevent overwriting or corrupting if remote payload is from a newer version
+    if (remotePayload.formatVersion && remotePayload.formatVersion > CURRENT_FORMAT_VERSION) {
+      return {
+        success: false,
+        action: 'offline_cached',
+        conflict: false,
+        message: `This backup was created by a newer version (format v${remotePayload.formatVersion}) of MFTracker. Please update your app to sync safely.`,
+        syncedAt: now,
+        remoteUpdatedAt,
+        remoteFileId: existingFile.id,
+        error: 'REMOTE_FORMAT_VERSION_NEWER'
+      };
+    }
+
     // If explicit pull forced
     if (options.forceDirection === 'pull') {
       setLastSyncedTime(remoteUpdatedAt || now, existingFile.id);
@@ -310,7 +403,7 @@ export async function syncPortfolioWithDrive(
     // If explicit push forced
     if (options.forceDirection === 'push') {
       const payloadToPush: SyncedPortfolioPayload = {
-        formatVersion: 2,
+        formatVersion: CURRENT_FORMAT_VERSION,
         app: 'MFTracker',
         updatedAt: now,
         deviceId,
@@ -374,7 +467,7 @@ export async function syncPortfolioWithDrive(
     // Case 4C: Local changed, but remote did NOT change -> Push local
     if (localChangedSinceLastSync && !remoteChangedSinceLastSync) {
       const payloadToPush: SyncedPortfolioPayload = {
-        formatVersion: 2,
+        formatVersion: CURRENT_FORMAT_VERSION,
         app: 'MFTracker',
         updatedAt: now,
         deviceId,
@@ -415,7 +508,7 @@ export async function syncPortfolioWithDrive(
     };
 
     const mergedPayload: SyncedPortfolioPayload = {
-      formatVersion: 2,
+      formatVersion: CURRENT_FORMAT_VERSION,
       app: 'MFTracker',
       updatedAt: now,
       deviceId,

@@ -163,7 +163,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Navigation Tabs */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <nav className="flex space-x-1 overflow-x-auto no-scrollbar border-t border-neutral-800/80 py-1.5 text-xs font-medium" aria-label="Tabs">
+        <nav className="flex space-x-1 overflow-x-auto no-scrollbar border-t border-neutral-800/80 py-1.5 text-xs font-medium" role="tablist" aria-label="Portfolio Navigation Tabs">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -171,8 +171,11 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 key={item.id}
                 id={`tab-btn-${item.id}`}
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`tabpanel-${item.id}`}
                 onClick={() => setActiveTab(item.id)}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg whitespace-nowrap transition-colors duration-75 cursor-pointer ${
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg whitespace-nowrap transition-colors duration-75 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-950 ${
                   isActive
                     ? 'bg-neutral-800 text-emerald-400 border border-neutral-700 font-semibold shadow-sm'
                     : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/40'

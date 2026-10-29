@@ -63,6 +63,7 @@ export const CasImporter: React.FC<CasImporterProps> = ({
     period?: string;
     folioCount?: number;
   }>({});
+  const [reconciliationWarnings, setReconciliationWarnings] = useState<string[]>([]);
 
   // Search filter for parsed preview
   const [previewSearch, setPreviewSearch] = useState<string>('');
@@ -120,6 +121,7 @@ export const CasImporter: React.FC<CasImporterProps> = ({
           period: result.statementPeriod,
           folioCount: result.folioCount
         });
+        setReconciliationWarnings(result.reconciliationWarnings || []);
 
         setImportStatus('success');
         setStatusMessage(`Successfully extracted ${result.transactions.length} mutual fund transactions across ${result.folioCount} folio(s) from "${fileName}"! Resolving live NAVs...`);
@@ -171,10 +173,6 @@ export const CasImporter: React.FC<CasImporterProps> = ({
                 currentNav: live.currentNav,
                 navDate: live.navDate,
                 navChange1D: live.navChange1D,
-                cagr3Y: 15,
-                cagr5Y: 18,
-                aumCr: 10000,
-                expenseRatio: (live.planType || origPlan) === 'Direct' ? 0.65 : 1.35,
                 isin: live.isin || ''
               };
             }
@@ -762,6 +760,24 @@ export const CasImporter: React.FC<CasImporterProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Reconciliation Unit Mismatch Alert */}
+          {reconciliationWarnings.length > 0 && (
+            <div className="bg-amber-950/40 border border-amber-800/60 rounded-xl p-4 text-xs text-amber-300 space-y-1.5">
+              <div className="flex items-center gap-2 font-bold text-amber-200">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Closing Unit Balance Warning ({reconciliationWarnings.length} mismatch detected)</span>
+              </div>
+              <ul className="list-disc list-inside space-y-1 pl-1 text-[11px] text-amber-300/90">
+                {reconciliationWarnings.map((warn, wIdx) => (
+                  <li key={wIdx}>{warn}</li>
+                ))}
+              </ul>
+              <p className="text-[10px] text-amber-400/80 pt-1">
+                Note: Mismatches usually occur if an older transaction from a previous period is not included in this statement.
+              </p>
+            </div>
+          )}
 
           {/* Merge Statistics Breakdown Banner */}
           {!replaceMode && (

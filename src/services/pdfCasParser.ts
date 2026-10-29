@@ -1004,7 +1004,7 @@ export async function parsePdfCasStatement(
     const investorName = extractCleanInvestorName(firstPageLines, allReconstructedLines, fullText);
 
     // Active state tracking during sequential scan
-    let currentFolio = 'FOLIO-1';
+    let currentFolio = '';
     let currentSchemeName = '';
     let currentIsin = '';
     let currentSchemeCode = '';
@@ -1354,7 +1354,7 @@ export async function parsePdfCasStatement(
             }
           }
 
-          if (amount >= 50 && amount <= 100000000 && units > 0) {
+          if (amount > 0 && amount <= 100000000 && units > 0) {
             let txType = classifyTransactionType(windowText);
             const upperWin = windowText.toUpperCase();
             const isExplicitRedemption = 
@@ -1374,7 +1374,9 @@ export async function parsePdfCasStatement(
 
             transactions.push({
               id: `pdf-fallback-tx-${txIdCounter++}`,
-              folioNumber: isValidFolioNumber(currentFolio) ? normalizeFolioNumber(currentFolio) : 'FOLIO-1',
+              folioNumber: isValidFolioNumber(currentFolio) 
+                ? normalizeFolioNumber(currentFolio) 
+                : `UNKNOWN-FOLIO-${currentSchemeCode || 'SCHEME'}`,
               schemeCode: currentSchemeCode,
               schemeName: cleanFundDisplayName(currentSchemeName),
               planType: currentPlanType,
@@ -1446,7 +1448,7 @@ export async function parsePdfCasStatement(
     const reconciliationWarnings: string[] = [];
     reportedClosingBalances.forEach((repUnits, key) => {
       const computed = computedUnitsMap.get(key) || 0;
-      if (Math.abs(computed - repUnits) > 0.05) {
+      if (Math.abs(computed - repUnits) > 0.001) {
         reconciliationWarnings.push(
           `Closing balance mismatch for ${key}: computed ${computed.toFixed(3)} units vs statement reported ${repUnits.toFixed(3)} units`
         );

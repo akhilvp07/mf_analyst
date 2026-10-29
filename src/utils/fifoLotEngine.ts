@@ -12,7 +12,8 @@ import {
   classifyTaxAssetClass, 
   GRANDFATHERING_2018_FMV_NAV, 
   calculateGrandfatheredCost,
-  INDIAN_TAX_CONFIG 
+  INDIAN_TAX_CONFIG,
+  getEquityTaxRatesForSaleDate 
 } from './taxConfig';
 import { parseDateSafe } from './financialCalculations';
 
@@ -71,7 +72,7 @@ export function runFifoLotEngine(
   const txGroups = new Map<string, TransactionRecord[]>();
   
   const sortedTxs = [...transactions]
-    .filter(t => t.status !== 'FAILED')
+    .filter(t => t.status !== 'FAILED' && !t.deleted)
     .sort((a, b) => parseDateSafe(a.date).getTime() - parseDateSafe(b.date).getTime());
 
   for (const tx of sortedTxs) {
@@ -167,10 +168,11 @@ export function runFifoLotEngine(
           let sectionCode = 'Sec 111A';
 
           if (isEquity) {
+            const equityRates = getEquityTaxRatesForSaleDate(sellDate);
             isLtcg = holdingDays > INDIAN_TAX_CONFIG.rates.equity.stcgDays;
             gainType = isLtcg ? 'LTCG' : 'STCG';
-            taxRatePct = isLtcg ? INDIAN_TAX_CONFIG.rates.equity.ltcgRate : INDIAN_TAX_CONFIG.rates.equity.stcgRate;
-            sectionCode = isLtcg ? INDIAN_TAX_CONFIG.rates.equity.sectionLtcg : INDIAN_TAX_CONFIG.rates.equity.sectionStcg;
+            taxRatePct = isLtcg ? equityRates.ltcgRate : equityRates.stcgRate;
+            sectionCode = isLtcg ? equityRates.sectionCodeLtcg : equityRates.sectionCodeStcg;
           } else if (assetClassType === 'DEBT') {
             // Post-April 2023 debt rules (Sec 50AA): slab rate
             gainType = 'DEBT_SLAB';
@@ -191,19 +193,30 @@ export function runFifoLotEngine(
           // Grandfathering adjustment for equity
           let grandfatheredCost: number | undefined;
           let taxableGain = grossGain;
-          if (isEquity && earliestLot.fmv2018Nav) {
-            const { adjustedCostNav, grandfatheringBenefitPerUnit } = calculateGrandfatheredCost(
-              earliestLot.buyNav,
-              sellNav,
-              earliestLot.fmv2018Nav
-            );
-            if (grandfatheringBenefitPerUnit > 0) {
-              grandfatheredCost = matchedUnits * adjustedCostNav;
-              taxableGain = Math.max(0, saleValue - grandfatheredCost);
-              const savings = grossGain - taxableGain;
-              if (savings > 0) {
-                totalGrandfatheringSavings += savings;
+          let grandfatheringStatus: 'APPLIED' | 'NOT_APPLICABLE' | 'FMV_MISSING' | undefined = undefined;
+          let grandfatheringWarning: string | undefined = undefined;
+
+          if (isEquity && earliestLot.buyDate <= new Date('2018-01-31T23:59:59Z')) {
+            if (earliestLot.fmv2018Nav && earliestLot.fmv2018Nav > 0) {
+              const { adjustedCostNav, grandfatheringBenefitPerUnit } = calculateGrandfatheredCost(
+                earliestLot.buyNav,
+                sellNav,
+                earliestLot.fmv2018Nav
+              );
+              if (grandfatheringBenefitPerUnit > 0) {
+                grandfatheredCost = matchedUnits * adjustedCostNav;
+                taxableGain = Math.max(0, saleValue - grandfatheredCost);
+                const savings = grossGain - taxableGain;
+                if (savings > 0) {
+                  totalGrandfatheringSavings += savings;
+                }
+                grandfatheringStatus = 'APPLIED';
+              } else {
+                grandfatheringStatus = 'NOT_APPLICABLE';
               }
+            } else {
+              grandfatheringStatus = 'FMV_MISSING';
+              grandfatheringWarning = 'Grandfathering not applied: 31-Jan-2018 FMV NAV missing';
             }
           }
 
@@ -232,6 +245,8 @@ export function runFifoLotEngine(
             gainOrLoss: grossGain,
             fmv2018Nav: earliestLot.fmv2018Nav,
             grandfatheredCost,
+            grandfatheringStatus,
+            grandfatheringWarning,
             taxableGain,
             applicableTaxRatePct: taxRatePct,
             estimatedTax,
@@ -258,10 +273,11 @@ export function runFifoLotEngine(
       let sectionCode = 'Sec 111A';
 
       if (isEquity) {
+        const equityRates = getEquityTaxRatesForSaleDate(today);
         isLtcg = holdingDays > INDIAN_TAX_CONFIG.rates.equity.stcgDays;
         gainType = isLtcg ? 'LTCG' : 'STCG';
-        taxRatePct = isLtcg ? INDIAN_TAX_CONFIG.rates.equity.ltcgRate : INDIAN_TAX_CONFIG.rates.equity.stcgRate;
-        sectionCode = isLtcg ? INDIAN_TAX_CONFIG.rates.equity.sectionLtcg : INDIAN_TAX_CONFIG.rates.equity.sectionStcg;
+        taxRatePct = isLtcg ? equityRates.ltcgRate : equityRates.stcgRate;
+        sectionCode = isLtcg ? equityRates.sectionCodeLtcg : equityRates.sectionCodeStcg;
       } else if (assetClassType === 'DEBT') {
         gainType = 'DEBT_SLAB';
         taxRatePct = INDIAN_TAX_CONFIG.marginalSlabRateEstimated;
@@ -279,19 +295,34 @@ export function runFifoLotEngine(
 
       let grandfatheredCost: number | undefined;
       let taxableGain = grossGain;
-      if (isEquity && lot.fmv2018Nav && isLtcg) {
-        const { adjustedCostNav, grandfatheringBenefitPerUnit } = calculateGrandfatheredCost(
-          lot.buyNav,
-          currentNav,
-          lot.fmv2018Nav
-        );
-        if (grandfatheringBenefitPerUnit > 0) {
-          grandfatheredCost = units * adjustedCostNav;
-          taxableGain = Math.max(0, valuationValue - grandfatheredCost);
-          const savings = grossGain - taxableGain;
-          if (savings > 0) {
-            totalGrandfatheringSavings += savings;
+      let grandfatheringStatus: 'APPLIED' | 'NOT_APPLICABLE' | 'FMV_MISSING' | undefined = undefined;
+      let grandfatheringWarning: string | undefined = undefined;
+
+      if (isEquity && lot.buyDate <= new Date('2018-01-31T23:59:59Z')) {
+        if (lot.fmv2018Nav && lot.fmv2018Nav > 0) {
+          if (isLtcg) {
+            const { adjustedCostNav, grandfatheringBenefitPerUnit } = calculateGrandfatheredCost(
+              lot.buyNav,
+              currentNav,
+              lot.fmv2018Nav
+            );
+            if (grandfatheringBenefitPerUnit > 0) {
+              grandfatheredCost = units * adjustedCostNav;
+              taxableGain = Math.max(0, valuationValue - grandfatheredCost);
+              const savings = grossGain - taxableGain;
+              if (savings > 0) {
+                totalGrandfatheringSavings += savings;
+              }
+              grandfatheringStatus = 'APPLIED';
+            } else {
+              grandfatheringStatus = 'NOT_APPLICABLE';
+            }
+          } else {
+            grandfatheringStatus = 'NOT_APPLICABLE';
           }
+        } else {
+          grandfatheringStatus = 'FMV_MISSING';
+          grandfatheringWarning = 'Grandfathering not applied: 31-Jan-2018 FMV NAV missing';
         }
       }
 
@@ -320,6 +351,8 @@ export function runFifoLotEngine(
         gainOrLoss: grossGain,
         fmv2018Nav: lot.fmv2018Nav,
         grandfatheredCost,
+        grandfatheringStatus,
+        grandfatheringWarning,
         taxableGain,
         applicableTaxRatePct: taxRatePct,
         estimatedTax,

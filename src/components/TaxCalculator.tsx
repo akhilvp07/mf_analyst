@@ -62,6 +62,7 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
       'Sale / Valuation NAV (INR)',
       'Cost of Acquisition (INR)',
       '31-Jan-2018 Grandfathered Cost (INR)',
+      'Grandfathering Status',
       'Sale / Consideration Value (INR)',
       'Gross Capital Gain / Loss (INR)',
       'Taxable Gain (INR)',
@@ -85,6 +86,7 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
       r.sellNav.toFixed(4),
       r.purchaseCost.toFixed(2),
       (r.grandfatheredCost ? r.grandfatheredCost.toFixed(2) : 'N/A'),
+      `"${r.grandfatheringStatus || 'N/A'}"`,
       r.saleValue.toFixed(2),
       r.grossGain.toFixed(2),
       r.taxableGain.toFixed(2),
@@ -93,7 +95,8 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
       `"Estimate, not for filing"`
     ]);
 
-    const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
+    const disclaimerHeader = '# MFTracker Capital Gains Schedule - Estimates only. Not investment, tax or legal advice.';
+    const csvContent = [disclaimerHeader, headers.join(','), ...rows.map(row => row.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -110,6 +113,12 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
 
   return (
     <div className="space-y-6">
+      {/* Universal Legal Notice */}
+      <div className="flex items-center gap-2.5 p-3.5 bg-neutral-900 border border-neutral-800 rounded-2xl text-xs text-neutral-300 shadow-sm">
+        <ShieldAlert className="w-4 h-4 shrink-0 text-amber-400" />
+        <span><strong>Estimates only. Not investment, tax or legal advice.</strong> Capital gains figures and grandfathering adjustments are computed for informational and planning purposes only. Verify with a Chartered Accountant or tax professional before filing ITR.</span>
+      </div>
+
       {/* Header Banner */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -120,7 +129,7 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
                 Capital Gains & Indian Tax Estimator
               </h2>
               <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                Budget 2024 (12.5% LTCG / 20% STCG)
+                Budget 2024 & Pre-Budget Rates
               </span>
               <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
                 <Clock className="w-3 h-3" />
@@ -457,8 +466,21 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ transactions, hold
                       <tr key={r.id} className="hover:bg-neutral-800/30 transition">
                         <td className="py-3 px-4 font-sans">
                           <span className="font-semibold text-white block text-xs truncate max-w-xs">{r.schemeName}</span>
-                          <span className="text-[10px] text-neutral-500 font-mono">
-                            Folio: {r.folioNumber} • Buy: {r.purchaseDate} {r.isRealized ? `• Sold: ${r.sellDate}` : ''}
+                          <span className="text-[10px] text-neutral-500 font-mono flex items-center gap-1.5 flex-wrap mt-0.5">
+                            <span>Folio: {r.folioNumber}</span>
+                            <span>•</span>
+                            <span>Buy: {r.purchaseDate}</span>
+                            {r.isRealized && <span>• Sold: {r.sellDate}</span>}
+                            {r.grandfatheringStatus === 'FMV_MISSING' && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-950/80 text-amber-300 border border-amber-800/80" title={r.grandfatheringWarning || '31-Jan-2018 FMV missing'}>
+                                ⚠️ FMV Missing
+                              </span>
+                            )}
+                            {r.grandfatheringStatus === 'APPLIED' && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-950/80 text-emerald-300 border border-emerald-800/80" title="Section 112A 31-Jan-2018 grandfathering applied">
+                                ✓ Grandfathered
+                              </span>
+                            )}
                           </span>
                         </td>
                         <td className="py-3 px-3 font-sans">

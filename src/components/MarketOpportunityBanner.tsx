@@ -11,7 +11,7 @@ import {
   X 
 } from 'lucide-react';
 import { NiftyMarketData } from '../types';
-import { fetchNiftyMarketData } from '../services/marketService';
+import { fetchNiftyMarketData, isMarketDataStale } from '../services/marketService';
 
 interface MarketOpportunityBannerProps {
   onNavigateToMarket: () => void;
@@ -28,11 +28,11 @@ export const MarketOpportunityBanner: React.FC<MarketOpportunityBannerProps> = (
     }).catch(() => {});
   }, []);
 
-  if (!marketData || isDismissed) return null;
+  if (!marketData || isDismissed || isMarketDataStale(marketData)) return null;
 
   const isDrawdownActive = (marketData.percentDropFromPeak || 0) <= -15.0;
-  const isPeActive = (marketData.currentPe || 0) < 20.0;
-  const isApproaching = (marketData.percentDropFromPeak || 0) <= -10.0 || (marketData.currentPe || 0) <= 21.5;
+  const isPeActive = (marketData.currentPe || 0) > 0 && (marketData.currentPe || 0) < 20.0;
+  const isApproaching = (marketData.percentDropFromPeak || 0) <= -10.0 || ((marketData.currentPe || 0) > 0 && (marketData.currentPe || 0) <= 21.5);
 
   const pointDrop = Math.abs(marketData.pointDropFromPeak || 0);
   const percentDrop = Math.abs(marketData.percentDropFromPeak || 0);

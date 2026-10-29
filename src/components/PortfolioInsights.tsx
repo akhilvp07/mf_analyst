@@ -505,6 +505,12 @@ Your mutual fund portfolio comprises **${numFunds} schemes** holding a combined 
 
   return (
     <div className="space-y-6">
+      {/* Universal Legal Notice */}
+      <div className="flex items-center gap-2.5 p-3.5 bg-neutral-900 border border-neutral-800 rounded-2xl text-xs text-neutral-300 shadow-sm">
+        <Info className="w-4 h-4 shrink-0 text-emerald-400" />
+        <span><strong>Estimates only. Not investment, tax or legal advice.</strong> Asset allocation, rebalance projections, and portfolio metrics are mathematical calculations for informational purposes.</span>
+      </div>
+
       {/* 1. Top Strategy Selector & Customizer */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-neutral-800">

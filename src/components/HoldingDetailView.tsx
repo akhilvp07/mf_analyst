@@ -20,7 +20,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { PortfolioHolding, TransactionRecord } from '../types';
-import { formatINR, formatNavDateDisplay, formatNavDateShort } from '../utils/financialCalculations';
+import { formatINR, formatNavDateDisplay, formatNavDateShort, isNavStale } from '../utils/financialCalculations';
 import { PrivacyValue } from '../context/PrivacyContext';
 
 interface HoldingDetailViewProps {
@@ -376,8 +376,13 @@ export const HoldingDetailView: React.FC<HoldingDetailViewProps> = ({
             <div className="text-lg font-bold font-mono text-white">
               ₹{currentNavVal.toFixed(2)}
             </div>
-            <div className="text-[11px] text-neutral-400 mt-0.5 flex items-center gap-1">
-              <span>{holding.navDate ? formatNavDateDisplay(holding.navDate) : 'Latest'}</span>
+            <div className="text-[11px] text-neutral-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
+              <span>{holding.navDate ? `NAV as of: ${formatNavDateDisplay(holding.navDate)}` : 'Latest'}</span>
+              {isNavStale(holding.navDate) && (
+                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-950/70 text-amber-300 border border-amber-800/80" title="NAV is older than 5 days">
+                  Stale
+                </span>
+              )}
               {navChange !== 0 && (
                 <span className={navChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
                   ({navChange >= 0 ? '+' : ''}{navChange.toFixed(2)}%)

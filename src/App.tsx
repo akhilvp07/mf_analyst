@@ -1,16 +1,32 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense, lazy } from 'react';
 import { Header, ActiveTab } from './components/Header';
-import { PortfolioOverview } from './components/PortfolioOverview';
-import { HoldingsTable } from './components/HoldingsTable';
-import { TransactionLedger } from './components/TransactionLedger';
-import { PortfolioInsights } from './components/PortfolioInsights';
-import { GoalTracker } from './components/GoalTracker';
-import { TaxCalculator } from './components/TaxCalculator';
-import { SipSimulator } from './components/SipSimulator';
-import { CasImporter } from './components/CasImporter';
-import { MarketAnalysis } from './components/MarketAnalysis';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 import { PrivacyProvider } from './context/PrivacyContext';
+
+// Code-split tabs for optimized bundle delivery
+const PortfolioOverview = lazy(() => import('./components/PortfolioOverview').then(m => ({ default: m.PortfolioOverview })));
+const HoldingsTable = lazy(() => import('./components/HoldingsTable').then(m => ({ default: m.HoldingsTable })));
+const TransactionLedger = lazy(() => import('./components/TransactionLedger').then(m => ({ default: m.TransactionLedger })));
+const PortfolioInsights = lazy(() => import('./components/PortfolioInsights').then(m => ({ default: m.PortfolioInsights })));
+const GoalTracker = lazy(() => import('./components/GoalTracker').then(m => ({ default: m.GoalTracker })));
+const TaxCalculator = lazy(() => import('./components/TaxCalculator').then(m => ({ default: m.TaxCalculator })));
+const SipSimulator = lazy(() => import('./components/SipSimulator').then(m => ({ default: m.SipSimulator })));
+const CasImporter = lazy(() => import('./components/CasImporter').then(m => ({ default: m.CasImporter })));
+const MarketAnalysis = lazy(() => import('./components/MarketAnalysis').then(m => ({ default: m.MarketAnalysis })));
+
+function TabLoadingSkeleton() {
+  return (
+    <div className="space-y-4 animate-pulse p-2">
+      <div className="h-24 bg-neutral-900 border border-neutral-800 rounded-2xl"></div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="h-28 bg-neutral-900 border border-neutral-800 rounded-2xl"></div>
+        <div className="h-28 bg-neutral-900 border border-neutral-800 rounded-2xl"></div>
+        <div className="h-28 bg-neutral-900 border border-neutral-800 rounded-2xl"></div>
+      </div>
+      <div className="h-64 bg-neutral-900 border border-neutral-800 rounded-2xl"></div>
+    </div>
+  );
+}
 
 import { TransactionRecord, MutualFundScheme } from './types';
 import { 
@@ -553,92 +569,94 @@ export default function App() {
 
         {/* Main View Container - Visited tabs kept in DOM for instant 0ms switching */}
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          {visitedTabs.has('overview') && (
-            <div className={activeTab === 'overview' ? 'block' : 'hidden'}>
-              <PortfolioOverview
-                summary={summary}
-                holdings={holdings}
-                transactions={transactions}
-                onNavigateTab={handleTabChange}
-                onOpenImport={() => handleTabChange('import')}
-              />
-            </div>
-          )}
+          <Suspense fallback={<TabLoadingSkeleton />}>
+            {visitedTabs.has('overview') && (
+              <div className={activeTab === 'overview' ? 'block' : 'hidden'}>
+                <PortfolioOverview
+                  summary={summary}
+                  holdings={holdings}
+                  transactions={transactions}
+                  onNavigateTab={handleTabChange}
+                  onOpenImport={() => handleTabChange('import')}
+                />
+              </div>
+            )}
 
-          {visitedTabs.has('holdings') && (
-            <div className={activeTab === 'holdings' ? 'block' : 'hidden'}>
-              <HoldingsTable
-                holdings={holdings}
-                transactions={transactions}
-                summary={summary}
-                onViewTransactions={handleViewSchemeLedger}
-                onSyncSingleNav={handleSyncSingleNav}
-                onSyncAllNavs={handleSyncAllNavs}
-                isSyncingNavs={isSyncingNavs}
-                onNavigateToMarket={() => handleTabChange('market')}
-              />
-            </div>
-          )}
+            {visitedTabs.has('holdings') && (
+              <div className={activeTab === 'holdings' ? 'block' : 'hidden'}>
+                <HoldingsTable
+                  holdings={holdings}
+                  transactions={transactions}
+                  summary={summary}
+                  onViewTransactions={handleViewSchemeLedger}
+                  onSyncSingleNav={handleSyncSingleNav}
+                  onSyncAllNavs={handleSyncAllNavs}
+                  isSyncingNavs={isSyncingNavs}
+                  onNavigateToMarket={() => handleTabChange('market')}
+                />
+              </div>
+            )}
 
-          {visitedTabs.has('market') && (
-            <div className={activeTab === 'market' ? 'block' : 'hidden'}>
-              <MarketAnalysis
-                summary={summary}
-                onNavigateToHoldings={() => handleTabChange('holdings')}
-              />
-            </div>
-          )}
+            {visitedTabs.has('market') && (
+              <div className={activeTab === 'market' ? 'block' : 'hidden'}>
+                <MarketAnalysis
+                  summary={summary}
+                  onNavigateToHoldings={() => handleTabChange('holdings')}
+                />
+              </div>
+            )}
 
-          {visitedTabs.has('transactions') && (
-            <div className={activeTab === 'transactions' ? 'block' : 'hidden'}>
-              <TransactionLedger
-                transactions={transactions}
-                selectedSchemeFilter={ledgerSchemeFilter}
-                onClearSchemeFilter={() => setLedgerSchemeFilter(undefined)}
-              />
-            </div>
-          )}
+            {visitedTabs.has('transactions') && (
+              <div className={activeTab === 'transactions' ? 'block' : 'hidden'}>
+                <TransactionLedger
+                  transactions={transactions}
+                  selectedSchemeFilter={ledgerSchemeFilter}
+                  onClearSchemeFilter={() => setLedgerSchemeFilter(undefined)}
+                />
+              </div>
+            )}
 
-          {visitedTabs.has('goals') && (
-            <div className={activeTab === 'goals' ? 'block' : 'hidden'}>
-              <GoalTracker holdings={holdings} />
-            </div>
-          )}
+            {visitedTabs.has('goals') && (
+              <div className={activeTab === 'goals' ? 'block' : 'hidden'}>
+                <GoalTracker holdings={holdings} />
+              </div>
+            )}
 
-          {visitedTabs.has('insights') && (
-            <div className={activeTab === 'insights' ? 'block' : 'hidden'}>
-              <PortfolioInsights 
-                holdings={holdings} 
-                summary={summary} 
-                transactions={transactions} 
-              />
-            </div>
-          )}
+            {visitedTabs.has('insights') && (
+              <div className={activeTab === 'insights' ? 'block' : 'hidden'}>
+                <PortfolioInsights 
+                  holdings={holdings} 
+                  summary={summary} 
+                  transactions={transactions} 
+                />
+              </div>
+            )}
 
-          {visitedTabs.has('tax') && (
-            <div className={activeTab === 'tax' ? 'block' : 'hidden'}>
-              <TaxCalculator transactions={transactions} holdings={holdings} />
-            </div>
-          )}
+            {visitedTabs.has('tax') && (
+              <div className={activeTab === 'tax' ? 'block' : 'hidden'}>
+                <TaxCalculator transactions={transactions} holdings={holdings} />
+              </div>
+            )}
 
-          {visitedTabs.has('simulator') && (
-            <div className={activeTab === 'simulator' ? 'block' : 'hidden'}>
-              <SipSimulator summary={summary} holdings={holdings} />
-            </div>
-          )}
+            {visitedTabs.has('simulator') && (
+              <div className={activeTab === 'simulator' ? 'block' : 'hidden'}>
+                <SipSimulator summary={summary} holdings={holdings} />
+              </div>
+            )}
 
-          {visitedTabs.has('import') && (
-            <div className={activeTab === 'import' ? 'block' : 'hidden'}>
-              <CasImporter
-                transactions={transactions}
-                schemes={schemes}
-                onImportTransactions={handleImportTransactions}
-                isGoogleSignedIn={Boolean(authUser)}
-                onOpenGoogleSignIn={() => setIsSignInModalOpen(true)}
-                lastSyncedDriveAt={lastSyncedDriveAt}
-              />
-            </div>
-          )}
+            {visitedTabs.has('import') && (
+              <div className={activeTab === 'import' ? 'block' : 'hidden'}>
+                <CasImporter
+                  transactions={transactions}
+                  schemes={schemes}
+                  onImportTransactions={handleImportTransactions}
+                  isGoogleSignedIn={Boolean(authUser)}
+                  onOpenGoogleSignIn={() => setIsSignInModalOpen(true)}
+                  lastSyncedDriveAt={lastSyncedDriveAt}
+                />
+              </div>
+            )}
+          </Suspense>
         </main>
 
         {/* Google Account Sign-In Prompt Modal */}

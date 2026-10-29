@@ -697,7 +697,7 @@ export function computePortfolioHoldings(
 ): { holdings: PortfolioHolding[]; summary: PortfolioSummary } {
   // 1. Sort transactions in ascending chronological order (oldest first) so purchases precede redemptions
   const validTxs = transactions
-    .filter(t => t.status !== 'FAILED')
+    .filter(t => t.status !== 'FAILED' && !t.deleted)
     .map(t => ({
       ...t,
       folioNumber: normalizeFolioNumber(t.folioNumber),
@@ -1265,7 +1265,9 @@ export interface GrowthDataPoint {
 }
 
 /**
- * Historical Nifty 50 Index anchor levels for precise benchmark simulation
+ * Historical Nifty 50 Index anchor levels (Approximate Offline Benchmark)
+ * Note: Hand-anchored price index levels used strictly as an offline approximation
+ * when neither the live server feed nor the browser index fund Total Return (TRI) series is available.
  */
 export const NIFTY_50_ANCHORS: [string, number][] = [
   ['2012-01-02', 4624],
@@ -2338,6 +2340,23 @@ export function mergeTransactions(
       // Enhance existing transaction metadata if incoming has better official AMFI code or clean fields
       const existing = mergedList[duplicateIndex];
       let didEnhance = false;
+
+      // Timestamp conflict resolution: newer updatedAt wins
+      if (incomingTx.updatedAt) {
+        const incomingTime = new Date(incomingTx.updatedAt).getTime();
+        const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+        if (incomingTime > existingTime) {
+          existing.type = incomingTx.type;
+          existing.units = incomingTx.units;
+          existing.amount = incomingTx.amount;
+          existing.nav = incomingTx.nav;
+          existing.notes = incomingTx.notes;
+          existing.updatedAt = incomingTx.updatedAt;
+          existing.deleted = incomingTx.deleted;
+          didEnhance = true;
+        }
+      }
+
       const isOfficialAmfi = /^\d{5,7}$/.test(incomingTx.schemeCode);
       const isExistingPlaceholder = !/^\d{5,7}$/.test(existing.schemeCode);
 
@@ -3213,4 +3232,16 @@ export function computeRebalanceReport(
     manualRebalanceNotes
   };
 }
+
+/**
+ * Checks whether a NAV date is stale (older than maxDays calendar days, default 5)
+ */
+export function isNavStale(navDateStr?: string, maxDays: number = 5): boolean {
+  if (!navDateStr) return false;
+  const d = parseDateSafe(navDateStr);
+  if (isNaN(d.getTime())) return false;
+  const diffDays = (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24);
+  return diffDays > maxDays;
+}
+
 

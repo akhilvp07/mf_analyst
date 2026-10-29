@@ -1274,10 +1274,6 @@ export async function syncSchemesForHoldings(
 
         resolvedScheme = {
           ...merged,
-          cagr3Y: 18.0,
-          cagr5Y: 20.0,
-          aumCr: 15000,
-          expenseRatio: merged.planType === 'Direct' ? 0.65 : 1.35,
           isin: merged.isin || target.isin || ''
         };
       }
@@ -1304,10 +1300,6 @@ export async function syncSchemesForHoldings(
             currentNav: live.currentNav,
             navDate: live.navDate,
             navChange1D: live.navChange1D,
-            cagr3Y: 18.0,
-            cagr5Y: 20.0,
-            aumCr: 15000,
-            expenseRatio: 0.65,
             isin: live.isin || target.isin || ''
           };
 

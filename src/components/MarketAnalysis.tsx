@@ -35,6 +35,7 @@ import {
   fetchNiftyMarketData, 
   loadAlertSettings, 
   saveAlertSettings, 
+  isMarketDataStale,
   MarketAlertSettings 
 } from '../services/marketService';
 
@@ -59,6 +60,7 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
       setMarketData(data);
     } catch (e) {
       console.error(e);
+      setMarketData(null);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -73,9 +75,10 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
   const activeMetrics = useMemo(() => {
     if (!marketData) return null;
 
-    const isDrawdownAlert = (marketData.percentDropFromPeak || 0) <= -Math.abs(settings.drawdownThreshold);
+    const isStale = isMarketDataStale(marketData);
+    const isDrawdownAlert = !isStale && (marketData.percentDropFromPeak || 0) <= -Math.abs(settings.drawdownThreshold);
     const peTtmValue = marketData.currentPeTtm ?? marketData.peTtm ?? marketData.currentPe ?? 0;
-    const isPeAlert = peTtmValue < settings.peThreshold;
+    const isPeAlert = !isStale && peTtmValue > 0 && peTtmValue < settings.peThreshold;
 
     return {
       close: marketData.currentClose,
@@ -89,6 +92,9 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
       pe: peTtmValue,
       peTtm: peTtmValue,
       isPeAlert,
+      isStale,
+      lastUpdated: marketData.lastUpdated,
+      name: marketData.name,
       peZone: marketData.peZone,
       priceAtPe20: Number((settings.peThreshold * 1105).toFixed(2)),
       pointsToPe20: marketData.pointsToPe20Threshold,
@@ -114,30 +120,32 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
     return (
       <div className="min-h-[500px] flex flex-col items-center justify-center space-y-4">
         <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
-        <p className="text-sm text-neutral-400 font-medium">Fetching live Nifty 50 market metrics & PE ratios...</p>
+        <p className="text-sm text-neutral-400 font-medium">Fetching authentic Nifty 50 benchmark data...</p>
       </div>
     );
   }
 
-  const metrics = activeMetrics || {
-    close: 23146.15,
-    peak: 26216.05,
-    peakDate: '2024-09-27',
-    pointDrop: 3069.9,
-    percentDrop: -11.71,
-    isDrawdownAlert: false,
-    triggerLevel15: 22283.64,
-    pointsTo15: 862.51,
-    pe: 19.77,
-    peTtm: 19.77,
-    isPeAlert: true,
-    peZone: 'deep_value',
-    priceAtPe20: 23415.40,
-    pointsToPe20: -269.25,
-    summaryText: 'Nifty 50 is 11.71% below peak. P/E Ratio (TTM): 19.77 (< 20.00 Buy Trigger Active).',
-    isSimulated: false
-  };
+  if (!activeMetrics) {
+    return (
+      <div className="min-h-[400px] flex flex-col items-center justify-center p-8 bg-neutral-900 border border-neutral-800 rounded-2xl text-center">
+        <Activity className="w-10 h-10 text-neutral-600 mb-3" />
+        <h3 className="text-base font-bold text-white">Market Data Unavailable</h3>
+        <p className="text-xs text-neutral-400 max-w-md mt-1 mb-4">
+          Unable to fetch real-time Nifty 50 benchmark data or index fund NAVs. Live valuation radar and alerts are suppressed until authentic market feeds are reachable.
+        </p>
+        <button
+          onClick={() => loadData(true)}
+          disabled={isRefreshing}
+          className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-xs text-white font-medium flex items-center gap-2 transition cursor-pointer"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+          Retry Fetching Market Data
+        </button>
+      </div>
+    );
+  }
 
+  const metrics = activeMetrics;
   const chartData = marketData?.history || [];
 
   return (
@@ -172,6 +180,21 @@ export const MarketAnalysis: React.FC<MarketAnalysisProps> = ({ summary, onNavig
             </button>
           </div>
         </div>
+      </div>
+
+      {metrics.isStale && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 text-xs text-amber-300 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <Clock className="w-4 h-4 shrink-0" />
+            <span>Market benchmark feed is as of <strong>{metrics.lastUpdated ? new Date(metrics.lastUpdated).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'historical'}</strong> (data &gt; 5 days old). Tactical opportunity alerts are suppressed to prevent false triggers.</span>
+          </div>
+          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 shrink-0">Stale Feed</span>
+        </div>
+      )}
+
+      {/* Legal & Regulatory Disclaimer */}
+      <div className="bg-neutral-900/60 border border-neutral-800/80 rounded-xl px-4 py-2 text-[11px] text-neutral-400 flex items-center justify-between">
+        <span>ℹ️ Estimates only. Not investment, tax or legal advice. Historical drawdowns and P/E thresholds are educational rules of thumb.</span>
       </div>
 
       {/* Primary Alert Cards Grid */}
